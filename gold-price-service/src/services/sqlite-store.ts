@@ -76,8 +76,23 @@ export class SQLiteStore {
     this.init();
   }
 
-  savePriceTick(price: GoldPrice): number {
-    const createdAt = new Date().toISOString();
+  savePriceTick(
+    price: GoldPrice,
+    createdAt = new Date().toISOString(),
+    deduplicate = price.source === 'bullionvault-history',
+  ): number {
+    if (deduplicate && price.quoteTime) {
+      const existing = this.db.prepare(`
+        SELECT id
+        FROM price_ticks
+        WHERE symbol = ? AND quote_time = ?
+        LIMIT 1
+      `).get(price.symbol, price.quoteTime) as { id: number } | undefined;
+
+      if (existing) {
+        return existing.id;
+      }
+    }
     const result = this.db.prepare(`
       INSERT INTO price_ticks (
         symbol, name, price, unit, change, change_percent, open, high, low,
@@ -110,7 +125,7 @@ export class SQLiteStore {
       SELECT *
       FROM price_ticks
       WHERE symbol = ?
-      ORDER BY id DESC
+      ORDER BY COALESCE(quote_time, created_at) DESC, id DESC
       LIMIT 1
     `).get(symbol) as PriceTickRow | undefined;
 
@@ -369,7 +384,7 @@ export class SQLiteStore {
     };
   }
 
-  cleanupOldPriceTicks(days = 30): number {
+  cleanupOldPriceTicks(days = 100): number {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const result = this.db.prepare('DELETE FROM price_ticks WHERE created_at < ?').run(cutoff);
     return result.changes;
@@ -517,6 +532,8 @@ export class SQLiteStore {
       '3d': 3 * 24 * 60 * 60 * 1000,
       '7d': 7 * 24 * 60 * 60 * 1000,
       '30d': 30 * 24 * 60 * 60 * 1000,
+      '90d': 90 * 24 * 60 * 60 * 1000,
+      '3m': 90 * 24 * 60 * 60 * 1000,
     };
 
     return ranges[range] || ranges['1h'];

@@ -4,12 +4,12 @@
 
 ## 功能
 
-- 黄金价格网实时行情为主源，招商银行行情为备用源
-- 每 5 秒后台采集 `AU9999`，写入 SQLite
+- BullionVault SockJS/STOMP 实时国际金价，原有国内行情接口继续作为独立数据源
+- 每条 BullionVault 实时推送写入 SQLite，并在首次启动时回填近 90 天历史数据
 - 保存黄金回收价，默认每 60 秒刷新一次
 - 提供历史曲线数据接口
 - 支持金价到价提醒规则和提醒事件
-- Electron 悬浮窗口展示实时金价、回收价、浮动和曲线
+- Electron 悬浮窗口展示实时金价、回收价、浮动和平滑曲线，支持折叠为桌面悬浮小球
 
 ## 快速开始
 
@@ -38,6 +38,29 @@ npm run desktop
 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
 ```
 
+## BullionVault STOMP 实时行情
+
+服务启动时默认建立 BullionVault SockJS/STOMP 长连接，订阅黄金 `/t/AUX/USD` 实时主题。收到推送后立即更新内存中的最新报价，并写入 SQLite。
+
+实时国际金价：
+
+```http
+GET /api/gold/bullionvault/latest
+```
+
+也可以通过通用接口获取：
+
+```http
+GET /api/gold/latest?symbol=XAUUSD
+```
+
+连接状态：
+
+```http
+GET /api/bullionvault/status
+```
+
+该实时源返回美元/盎司，使用独立的 `XAUUSD` 标识。桌面端按 `美元/盎司 × USD/CNY ÷ 31.1034768` 换算为国内元/克，主显示截断到两位小数，计算明细保留 JavaScript 原始结果。可通过 `BULLIONVAULT_ENABLED=false` 关闭，或设置 `BULLIONVAULT_STOMP_DEBUG=true` 输出协议调试日志。
 ## API
 
 ### 健康检查
@@ -70,7 +93,7 @@ GET /api/gold/full
 GET /api/gold/history?symbol=AU9999&range=1h
 ```
 
-`range` 支持：`15m`、`1h`、`6h`、`1d`、`3d`、`7d`、`30d`。
+`range` 支持：`15m`、`1h`、`6h`、`1d`、`3d`、`7d`、`30d`、`90d`、`3m`。`XAUUSD` 数据包含首次启动回填的近 90 天历史，以及之后的每条实时推送。
 
 历史数据来自 SQLite 后台采集器；如果数据库暂时为空，会回退到内存历史。
 

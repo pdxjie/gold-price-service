@@ -1,14 +1,40 @@
 // Express HTTP 服务器
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import { createServer } from 'http';
 import { AlertDirection } from './types';
 import { priceAggregator } from './services/price-aggregator';
+import { bullionVaultLiveService } from './services/bullionvault-live';
+import { jdGoldLiveService } from './services/jd-gold-live';
+import { goldWebSocketService, GoldWebSocketMessage } from './services/gold-websocket';
 import { priceCollector } from './services/price-collector';
 import { sqliteStore } from './services/sqlite-store';
 import akshareService from './services/akshare';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const httpServer = createServer(app);
+
+goldWebSocketService.attach(httpServer, () => {
+  const messages: GoldWebSocketMessage[] = [];
+  const jdQuote = jdGoldLiveService.getLatestQuote();
+  const bullionVaultQuote = bullionVaultLiveService.getLatestQuote();
+  if (jdQuote) {
+    messages.push({
+      type: 'jd-gold.quote',
+      emittedAt: new Date().toISOString(),
+      data: jdQuote,
+    });
+  }
+  if (bullionVaultQuote) {
+    messages.push({
+      type: 'bullionvault.quote',
+      emittedAt: new Date().toISOString(),
+      data: bullionVaultQuote,
+    });
+  }
+  return messages;
+});
 
 // 中间件
 app.use(cors());
@@ -29,6 +55,9 @@ app.get('/health', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     collector: priceCollector.getStatus(),
+    jdGold: jdGoldLiveService.getStatus(),
+    bullionVault: bullionVaultLiveService.getStatus(),
+    websocket: goldWebSocketService.getStatus(),
   });
 });
 
@@ -54,6 +83,74 @@ app.get('/api/gold/latest', async (req: Request, res: Response) => {
       data: null,
     });
   }
+});
+
+/**
+ * 获取 BullionVault STOMP 实时国际金价
+ * GET /api/gold/bullionvault/latest
+ */
+app.get('/api/gold/bullionvault/latest', async (_req: Request, res: Response) => {
+  try {
+    const price = await priceAggregator.getBullionVaultLatestPrice();
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: price,
+    });
+  } catch (error) {
+    console.error('Get BullionVault price error:', error);
+    res.status(503).json({
+      code: 503,
+      message: error instanceof Error ? error.message : 'BullionVault unavailable',
+      data: null,
+    });
+  }
+});
+
+/**
+ * 获取 BullionVault STOMP 连接状态
+ * GET /api/bullionvault/status
+ */
+app.get('/api/bullionvault/status', (_req: Request, res: Response) => {
+  res.json({
+    code: 200,
+    message: '获取成功',
+    data: bullionVaultLiveService.getStatus(),
+  });
+});
+
+app.get('/api/jd-gold/latest', async (_req: Request, res: Response) => {
+  try {
+    const quote = await jdGoldLiveService.waitForLatestQuote(5000);
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: quote,
+    });
+  } catch (error) {
+    res.status(503).json({
+      code: 503,
+      message: error instanceof Error ? error.message : '京东黄金行情不可用',
+      data: null,
+    });
+  }
+});
+
+app.get('/api/jd-gold/status', (_req: Request, res: Response) => {
+  res.json({
+    code: 200,
+    message: '获取成功',
+    data: jdGoldLiveService.getStatus(),
+  });
+});
+
+app.get('/api/gold/websocket/status', (_req: Request, res: Response) => {
+  res.json({
+    code: 200,
+    message: '获取成功',
+    data: goldWebSocketService.getStatus(),
+  });
 });
 
 /**
@@ -93,6 +190,25 @@ app.get('/api/gold/history', (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get history error:', error);
+    res.status(500).json({
+      code: 500,
+      message: error instanceof Error ? error.message : 'Internal server error',
+      data: null,
+    });
+  }
+});
+
+app.get('/api/jd-gold/history', (req: Request, res: Response) => {
+  try {
+    const range = (req.query.range as string) || '1h';
+    const symbol = 'CZB-JCJ';
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: sqliteStore.getPriceHistory(symbol, range),
+    });
+  } catch (error) {
+    console.error('Get JD gold history error:', error);
     res.status(500).json({
       code: 500,
       message: error instanceof Error ? error.message : 'Internal server error',
@@ -204,6 +320,7 @@ app.get('/api/admin/stats', (_req: Request, res: Response) => {
       cache: priceAggregator.getCacheStats(),
       database: sqliteStore.getStats(),
       collector: priceCollector.getStatus(),
+      bullionVault: bullionVaultLiveService.getStatus(),
     };
     res.json({
       code: 200,
@@ -388,14 +505,54 @@ app.use((err: Error, _req: Request, res: Response, _next: any) => {
   });
 });
 
+let lastJdPrice: number | undefined;
+
+jdGoldLiveService.addListener((quote) => {
+  goldWebSocketService.broadcast('jd-gold.quote', quote);
+  if (lastJdPrice === quote.zhejiangGold.price) {
+    return;
+  }
+
+  try {
+    sqliteStore.savePriceTick(priceAggregator.toJdGoldPrice(quote, 'CZB-JCJ'));
+    lastJdPrice = quote.zhejiangGold.price;
+  } catch (error) {
+    console.error('Persist JD gold quote error:', error);
+  }
+});
+
+bullionVaultLiveService.addListener((quote) => {
+  try {
+    sqliteStore.savePriceTick(priceAggregator.toBullionVaultGoldPrice(quote));
+    goldWebSocketService.broadcast('bullionvault.quote', quote);
+  } catch (error) {
+    console.error('Persist BullionVault quote error:', error);
+  }
+});
+
+async function backfillBullionVaultHistory(): Promise<void> {
+  try {
+    const quotes = await bullionVaultLiveService.getHistoricalQuotes(90);
+    for (const quote of quotes) {
+      sqliteStore.savePriceTick(
+        priceAggregator.toBullionVaultGoldPrice(quote),
+        quote.timestamp,
+      );
+    }
+    console.log(`📚 BullionVault history backfilled: ${quotes.length} points`);
+  } catch (error) {
+    console.error('BullionVault history backfill failed:', error);
+  }
+}
 /**
  * 启动服务器
  */
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log('='.repeat(50));
   console.log('🚀 Gold Price Service Started');
   console.log('='.repeat(50));
   console.log(`📡 Server: http://localhost:${PORT}`);
+  console.log(`🔌 WebSocket: ws://localhost:${PORT}${goldWebSocketService.getStatus().path}`);
   console.log(`🏥 Health: http://localhost:${PORT}/health`);
   console.log(`💰 Latest: http://localhost:${PORT}/api/gold/latest`);
   console.log(`📊 History: http://localhost:${PORT}/api/gold/history`);
@@ -403,6 +560,17 @@ app.listen(PORT, () => {
   console.log(`📈 Full: http://localhost:${PORT}/api/gold/full`);
   console.log(`🔔 Alerts: http://localhost:${PORT}/api/alerts/rules`);
   console.log('='.repeat(50));
+
+  if (process.env.BULLIONVAULT_ENABLED !== 'false') {
+    bullionVaultLiveService.start();
+    void backfillBullionVaultHistory();
+    console.log('📡 BullionVault STOMP live feed enabled');
+  }
+
+  if (process.env.JD_GOLD_ENABLED !== 'false') {
+    jdGoldLiveService.start();
+    console.log(`📡 JD gold polling enabled (${jdGoldLiveService.getStatus().pollIntervalMs}ms)`);
+  }
 
   if (process.env.COLLECTOR_ENABLED !== 'false') {
     priceCollector.start();
@@ -414,6 +582,10 @@ app.listen(PORT, () => {
 const shutdown = (signal: string) => {
   console.log(`${signal} received, shutting down gracefully...`);
   priceCollector.stop();
+  jdGoldLiveService.stop();
+  bullionVaultLiveService.stop();
+  goldWebSocketService.close();
+  httpServer.close();
   sqliteStore.close();
   process.exit(0);
 };

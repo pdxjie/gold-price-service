@@ -1,6 +1,8 @@
 // 价格数据聚合服务
 import NodeCache from 'node-cache';
 import { cmbChinaService } from './cmbchina';
+import { bullionVaultLiveService, BullionVaultLiveQuote } from './bullionvault-live';
+import { jdGoldLiveService, JdGoldLiveQuote, JdMarketInstrument } from './jd-gold-live';
 import { goldScraperService } from './gold-scraper';
 import { GoldPrice, GoldDataResponse, PriceHistory } from '../types';
 
@@ -15,9 +17,70 @@ export class PriceAggregatorService {
   }
 
   /**
+   * 获取 BullionVault STOMP 实时国际金价。
+   */
+  async getBullionVaultLatestPrice(): Promise<GoldPrice> {
+    const quote = await bullionVaultLiveService.waitForLatestQuote();
+    return this.toBullionVaultGoldPrice(quote);
+  }
+
+  /**
+   * 将 BullionVault 的美元/千克行情转换为美元/盎司报价。
+   */
+  toBullionVaultGoldPrice(quote: BullionVaultLiveQuote): GoldPrice {
+    return {
+      symbol: 'XAUUSD',
+      name: 'BullionVault 黄金',
+      price: quote.pricePerTroyOunce,
+      unit: '美元/盎司',
+      high: quote.highPerTroyOunce,
+      low: quote.lowPerTroyOunce,
+      quoteTime: quote.timestamp,
+      fetchTime: new Date().toISOString(),
+      source: quote.source,
+    };
+  }
+
+  toJdGoldPrice(quote: JdGoldLiveQuote, symbol = 'AU9999', instrument = quote.zhejiangGold): GoldPrice {
+    return {
+      symbol,
+      name: instrument.name,
+      price: instrument.price,
+      unit: '元/克',
+      change: instrument.change,
+      changePercent: instrument.changePercent,
+      open: instrument.open,
+      high: instrument.high,
+      low: instrument.low,
+      preClose: instrument.preClose,
+      volume: instrument.volume === undefined ? undefined : String(instrument.volume),
+      quoteTime: instrument.quoteTime,
+      fetchTime: quote.fetchedAt,
+      source: quote.source,
+    };
+  }
+
+  /**
    * 获取最新金价（带缓存和降级策略）
    */
   async getLatestPrice(symbol: string = 'AU9999', options: { bypassCache?: boolean } = {}): Promise<GoldPrice> {
+    const normalizedSymbol = symbol.toUpperCase();
+    if (normalizedSymbol === 'XAUUSD' || normalizedSymbol === 'AUX') {
+      return this.getBullionVaultLatestPrice();
+    }
+
+    if (normalizedSymbol === 'AU9999' || normalizedSymbol === 'CZB-JCJ' || normalizedSymbol === 'AUTD') {
+      try {
+        const quote = await jdGoldLiveService.waitForLatestQuote(5000);
+        const instrument: JdMarketInstrument = normalizedSymbol === 'AUTD'
+          ? quote.goldTd || quote.zhejiangGold
+          : quote.zhejiangGold;
+        return this.toJdGoldPrice(quote, symbol, instrument);
+      } catch (error) {
+        console.error('JD gold fetch error:', error);
+      }
+    }
+
     const cacheKey = `latest_${symbol}`;
 
     // 尝试从缓存获取
@@ -136,22 +199,35 @@ export class PriceAggregatorService {
     let cutoffTime: number;
 
     switch (range) {
+      case '15m':
+        cutoffTime = now - 15 * 60 * 1000;
+        break;
       case '1h':
-        cutoffTime = now - 60 * 60 * 1000; // 1小时
+        cutoffTime = now - 60 * 60 * 1000;
+        break;
+      case '6h':
+        cutoffTime = now - 6 * 60 * 60 * 1000;
         break;
       case '1d':
-        cutoffTime = now - 24 * 60 * 60 * 1000; // 1天
+        cutoffTime = now - 24 * 60 * 60 * 1000;
         break;
       case '3d':
-        cutoffTime = now - 3 * 24 * 60 * 60 * 1000; // 3天
+        cutoffTime = now - 3 * 24 * 60 * 60 * 1000;
         break;
       case '7d':
-        cutoffTime = now - 7 * 24 * 60 * 60 * 1000; // 7天
+        cutoffTime = now - 7 * 24 * 60 * 60 * 1000;
+        break;
+      case '30d':
+        cutoffTime = now - 30 * 24 * 60 * 60 * 1000;
+        break;
+      case '90d':
+      case '3m':
+        cutoffTime = now - 90 * 24 * 60 * 60 * 1000;
         break;
       default:
-        cutoffTime = now - 60 * 60 * 1000; // 默认1小时
+        cutoffTime = now - 60 * 60 * 1000;
+        break;
     }
-
     const filteredData = history.filter(point => {
       const timestamp = new Date(point.timestamp).getTime();
       return timestamp >= cutoffTime;

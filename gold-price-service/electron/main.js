@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, screen } = require('electron');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -10,6 +10,59 @@ const API_BASE = `http://localhost:${BACKEND_PORT}`;
 
 let mainWindow = null;
 let backendProcess = null;
+const expandedWindowSize = [420, 960];
+const collapsedWindowSize = [260, 124];
+let windowCollapsed = false;
+const dragSessions = new Map();
+
+function moveWindowFromDrag(session, pointerX, pointerY) {
+  if (!session || session.window.isDestroyed()) {
+    return;
+  }
+
+  if (!Number.isFinite(pointerX) || !Number.isFinite(pointerY)) {
+    return;
+  }
+
+  const nextX = session.windowX + Math.round(pointerX - session.pointerX);
+  const nextY = session.windowY + Math.round(pointerY - session.pointerY);
+  if (nextX === session.lastWindowX && nextY === session.lastWindowY) {
+    return;
+  }
+
+  session.lastWindowX = nextX;
+  session.lastWindowY = nextY;
+  session.window.setPosition(nextX, nextY, false);
+}
+
+function endWindowDrag(sender) {
+  const session = dragSessions.get(sender);
+  if (session?.cursorTimer) {
+    clearInterval(session.cursorTimer);
+  }
+  dragSessions.delete(sender);
+}
+
+function keepWindowVisible() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) {
+    return;
+  }
+
+  const bounds = mainWindow.getBounds();
+  const workArea = screen.getDisplayMatching(bounds).workArea;
+  const visibleMargin = 28;
+  const titlebarHeight = Math.min(36, bounds.height);
+  const minX = workArea.x - bounds.width + visibleMargin;
+  const maxX = workArea.x + workArea.width - visibleMargin;
+  const minY = workArea.y;
+  const maxY = workArea.y + workArea.height - titlebarHeight;
+  const nextX = Math.min(maxX, Math.max(minX, bounds.x));
+  const nextY = Math.min(maxY, Math.max(minY, bounds.y));
+
+  if (nextX !== bounds.x || nextY !== bounds.y) {
+    mainWindow.setPosition(nextX, nextY, false);
+  }
+}
 
 function healthCheck() {
   return new Promise((resolve) => {
@@ -66,6 +119,7 @@ async function ensureBackend() {
     env: {
       ...process.env,
       PORT: String(BACKEND_PORT),
+      JD_GOLD_POLL_INTERVAL_MS: process.env.JD_GOLD_POLL_INTERVAL_MS || '2000',
       COLLECT_INTERVAL_MS: process.env.COLLECT_INTERVAL_MS || '5000',
       RECYCLE_COLLECT_INTERVAL_MS: process.env.RECYCLE_COLLECT_INTERVAL_MS || '60000',
     },
@@ -90,12 +144,13 @@ async function ensureBackend() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 390,
-    height: 570,
-    minWidth: 340,
-    minHeight: 480,
+    width: expandedWindowSize[0],
+    height: expandedWindowSize[1],
+    minWidth: collapsedWindowSize[0],
+    minHeight: collapsedWindowSize[1],
     frame: false,
     transparent: true,
+    hasShadow: false,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
@@ -110,6 +165,8 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.on('move', keepWindowVisible);
+  mainWindow.on('resize', keepWindowVisible);
 }
 
 app.whenReady().then(async () => {
@@ -131,6 +188,82 @@ app.on('before-quit', () => {
   }
 });
 
+ipcMain.handle('window:set-collapsed', (_event, collapsed) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  const nextCollapsed = Boolean(collapsed);
+  if (nextCollapsed === windowCollapsed) {
+    return windowCollapsed;
+  }
+
+  const [width, height] = nextCollapsed ? collapsedWindowSize : expandedWindowSize;
+  const bounds = mainWindow.getBounds();
+  mainWindow.setBounds({
+    x: bounds.x + Math.round((bounds.width - width) / 2),
+    y: bounds.y + Math.round((bounds.height - height) / 2),
+    width,
+    height,
+  }, false);
+  keepWindowVisible();
+
+  windowCollapsed = nextCollapsed;
+  return windowCollapsed;
+});
+ipcMain.on('window:drag-start', (event, payload) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  const pointerX = Number(payload?.pointerX);
+  const pointerY = Number(payload?.pointerY);
+  if (!Number.isFinite(pointerX) || !Number.isFinite(pointerY)) {
+    return;
+  }
+
+  const [windowX, windowY] = window.getPosition();
+  endWindowDrag(event.sender);
+  const session = {
+    window,
+    pointerX,
+    pointerY,
+    windowX,
+    windowY,
+    lastWindowX: windowX,
+    lastWindowY: windowY,
+    cursorTimer: null,
+  };
+
+  session.cursorTimer = setInterval(() => {
+    if (session.window.isDestroyed()) {
+      endWindowDrag(event.sender);
+      return;
+    }
+
+    const cursor = screen.getCursorScreenPoint();
+    moveWindowFromDrag(session, cursor.x, cursor.y);
+  }, 16);
+  dragSessions.set(event.sender, session);
+});
+ipcMain.on('window:drag-move', (event, payload) => {
+  const session = dragSessions.get(event.sender);
+  if (!session || session.window.isDestroyed()) {
+    return;
+  }
+
+  const pointerX = Number(payload?.pointerX);
+  const pointerY = Number(payload?.pointerY);
+  if (!Number.isFinite(pointerX) || !Number.isFinite(pointerY)) {
+    return;
+  }
+
+  moveWindowFromDrag(session, pointerX, pointerY);
+});
+ipcMain.on('window:drag-end', (event) => {
+  endWindowDrag(event.sender);
+});
 ipcMain.handle('window:minimize', () => {
   mainWindow?.minimize();
 });

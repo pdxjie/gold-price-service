@@ -12,6 +12,38 @@
 - 到价提醒规则和事件已接入
 - Electron 悬浮窗口已完成第一版
 
+## BullionVault STOMP 实时行情
+
+服务启动时默认建立 BullionVault SockJS/STOMP 长连接，订阅黄金 `/t/AUX/USD` 实时主题。收到推送后会立即更新内存中的最新报价，并写入 SQLite，页面或接口读取时不再等待下一次 HTTP 抓取。
+
+实时国际金价接口：
+
+```text
+http://localhost:3001/api/gold/bullionvault/latest
+```
+
+返回单位为美元/盎司；也可以通过通用接口使用 `XAUUSD` 或 `AUX`：
+
+```text
+http://localhost:3001/api/gold/latest?symbol=XAUUSD
+```
+
+连接状态：
+
+```text
+http://localhost:3001/api/bullionvault/status
+```
+
+可通过环境变量关闭或调整：
+
+```text
+BULLIONVAULT_ENABLED=false
+BULLIONVAULT_STOMP_DEBUG=true
+BULLIONVAULT_BOOTSTRAP_INTERVAL=5
+BULLIONVAULT_STALE_AFTER_MS=120000
+```
+
+原有 `AU9999` 国内行情源保持不变，BullionVault 实时源使用独立的 `XAUUSD` 标识，避免把国际美元/盎司报价误当成国内元/克报价。
 ## 启动桌面浮窗
 
 ```bash

@@ -7,84 +7,143 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <div id="collapsedBall" class="collapsed-card" role="button" tabindex="0" aria-label="展开金价详情" aria-live="polite">
+      <div class="collapsed-drag-handle" title="按住拖动" aria-hidden="true"></div>
+      <div class="collapsed-card-head">
+        <span class="collapsed-live"><span class="collapsed-live-dot" aria-hidden="true"></span>积存金</span>
+        <span id="collapsedUpdated">--</span>
+      </div>
+      <div class="collapsed-price-line">
+        <strong id="collapsedPrice">--</strong>
+        <span>元/克</span>
+      </div>
+      <div id="collapsedProfit" class="collapsed-profit">未设置持仓</div>
+    </div>
+
     <main class="shell">
       <header class="titlebar">
         <div class="title">
-          <span class="mark"></span>
+          <span class="mark" aria-hidden="true"></span>
           <span>金价浮窗</span>
+          <span class="live-status" aria-live="polite">
+            <span id="liveStatusDot" class="live-status-dot" aria-hidden="true"></span>
+            <span id="liveStatus">连接中</span>
+          </span>
         </div>
         <div class="window-actions">
-          <button id="pinButton" class="icon-button active" title="置顶" aria-label="置顶">⌃</button>
-          <button id="minimizeButton" class="icon-button" title="最小化" aria-label="最小化">−</button>
-          <button id="closeButton" class="icon-button danger" title="关闭" aria-label="关闭">×</button>
+          <button id="toggleButton" class="icon-button toggle-control active" type="button" title="折叠" aria-label="折叠" aria-expanded="true"></button>
+          <button id="minimizeButton" class="icon-button" type="button" title="最小化" aria-label="最小化">−</button>
+          <button id="closeButton" class="icon-button danger" type="button" title="关闭" aria-label="关闭">×</button>
         </div>
       </header>
 
       <section class="hero">
         <div>
-          <div class="label-row">
-            <span id="sourceBadge" class="badge">连接中</span>
-            <span id="quoteTime" class="muted">--:--:--</span>
-          </div>
           <div class="price-line">
-            <span id="currentPrice">--</span>
+            <span id="currentPrice" aria-live="polite">--</span>
             <span class="unit">元/克</span>
           </div>
           <div id="changeText" class="change neutral">等待采集</div>
+          <div class="secondary-quotes" aria-live="polite">
+            <div class="secondary-quote">
+              <span>民生黄金</span>
+              <strong id="minshengPrice">--</strong>
+              <em>元/克</em>
+            </div>
+            <div class="secondary-quote exchange-quote">
+              <span>美元兑人民币</span>
+              <strong id="exchangeRate">--</strong>
+            </div>
+          </div>
         </div>
-        <div class="mini-metrics">
+      </section>
+
+      <section class="holding-section">
+        <div class="section-head">
+          <span>我的资产</span>
+          <span id="holdingModeHint" class="section-hint">按实时金价估值</span>
+        </div>
+        <div class="holding-modes" role="tablist" aria-label="持仓估值方式">
+          <button class="holding-mode active" type="button" role="tab" aria-selected="true" data-holding-mode="market">积存金</button>
+          <button class="holding-mode" type="button" role="tab" aria-selected="false" data-holding-mode="brand">品牌金</button>
+          <button class="holding-mode" type="button" role="tab" aria-selected="false" data-holding-mode="recycle">回收金</button>
+        </div>
+        <div class="holding-assets-toolbar">
+          <span id="holdingAssetCount">当前 1 项资产</span>
+          <button id="addHoldingButton" class="add-holding-button" type="button">＋ 添加资产</button>
+        </div>
+        <div id="holdingAssetList" class="holding-asset-list" aria-label="资产列表"></div>
+        <div id="holdingForm" class="holding-form">
+          <label class="field compact-field">
+            <span>持有克数</span>
+            <input id="holdingGrams" type="number" min="0" step="any" placeholder="100.00" inputmode="decimal" />
+          </label>
+          <label class="field compact-field">
+            <span>买入价</span>
+            <div class="field-input-with-unit">
+              <input id="holdingBuyPrice" type="number" min="0" step="0.01" placeholder="980.00" inputmode="decimal" />
+              <em>元/克</em>
+            </div>
+          </label>
+          <label id="holdingBrandField" class="field brand-field" hidden>
+            <span>品牌</span>
+            <select id="holdingBrand" aria-label="选择品牌"></select>
+          </label>
+        </div>
+        <div id="holdingQuoteNote" class="holding-quote-note">填入克数和买入价后，实时计算持仓盈亏</div>
+        <div class="holding-summary">
           <div>
-            <span>高</span>
-            <strong id="highPrice">--</strong>
+            <span id="holdingValueLabel">当前估值</span>
+            <strong id="holdingValue">--</strong>
           </div>
           <div>
-            <span>低</span>
-            <strong id="lowPrice">--</strong>
+            <span>资产成本</span>
+            <strong id="holdingCost">--</strong>
           </div>
+          <div class="holding-profit-cell">
+            <span>盈亏</span>
+            <strong id="holdingProfit">--</strong>
+          </div>
+        </div>
+        <div id="holdingSale" class="holding-sale" hidden>
+          <span id="holdingRecycleRate">回收价 --</span>
+          <strong id="holdingSaleValue">可卖 --</strong>
+          <em id="holdingSaleProfit">卖出盈亏 --</em>
         </div>
       </section>
 
       <section class="chart-section">
         <div class="section-head">
-          <span>走势</span>
-          <div class="range-tabs" role="tablist">
-            <button class="range-tab active" data-range="15m">15m</button>
-            <button class="range-tab" data-range="1h">1h</button>
-            <button class="range-tab" data-range="1d">1d</button>
+          <span>价格曲线</span>
+          <div class="range-tabs" role="tablist" aria-label="价格时间范围">
+            <button class="range-tab" type="button" role="tab" aria-selected="false" data-range="15m">15分钟</button>
+            <button class="range-tab active" type="button" role="tab" aria-selected="true" data-range="1h">1小时</button>
+            <button class="range-tab" type="button" role="tab" aria-selected="false" data-range="1d">1天</button>
+            <button class="range-tab" type="button" role="tab" aria-selected="false" data-range="3m">3个月</button>
           </div>
         </div>
-        <canvas id="priceChart" width="680" height="260"></canvas>
-      </section>
-
-      <section class="recycle-section">
-        <div>
-          <span class="sub-label">回收价</span>
-          <strong id="recyclePrice">--</strong>
-        </div>
-        <div>
-          <span class="sub-label">回收差价</span>
-          <strong id="spreadPrice">--</strong>
-        </div>
+        <canvas id="priceChart" width="680" height="260" role="img" aria-label="金价走势，移动鼠标查看价格和时间"></canvas>
+        <div id="chartTooltip" class="chart-tooltip" role="status" aria-live="polite" hidden></div>
       </section>
 
       <section class="alert-section">
         <div class="section-head">
           <span>到价提醒</span>
-          <label class="switch">
+          <label class="switch" aria-label="启用到价提醒">
             <input id="alertEnabled" type="checkbox" checked />
             <span></span>
           </label>
         </div>
         <div class="alert-controls">
           <div class="segmented">
-            <button class="segment active" data-direction="below">低于</button>
-            <button class="segment" data-direction="above">高于</button>
+            <button class="segment active" type="button" aria-pressed="true" data-direction="below">低于</button>
+            <button class="segment" type="button" aria-pressed="false" data-direction="above">高于</button>
           </div>
           <label class="amount-input">
-            <input id="targetPriceInput" type="number" min="1" step="0.01" placeholder="980.00" />
+            <input id="targetPriceInput" type="number" min="1" step="0.01" placeholder="980.00" aria-label="提醒价格" />
             <span>元/克</span>
           </label>
-          <button id="saveAlertButton" class="primary-button">保存</button>
+          <button id="saveAlertButton" class="primary-button" type="button">保存</button>
         </div>
         <div id="alertStatus" class="status-line">未设置提醒</div>
       </section>
@@ -94,7 +153,6 @@
         <span id="updatedAt">--</span>
       </footer>
     </main>
-
     <script src="./app.js"></script>
   </body>
 </html>
