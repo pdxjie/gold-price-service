@@ -10,6 +10,7 @@ import { goldWebSocketService, GoldWebSocketMessage } from './services/gold-webs
 import { priceCollector } from './services/price-collector';
 import { sqliteStore } from './services/sqlite-store';
 import akshareService from './services/akshare';
+import { sendFeishuTest } from './services/feishu-notifier';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -459,6 +460,109 @@ app.delete('/api/alerts/rules/:id', (req: Request, res: Response) => {
 });
 
 /**
+ * 获取飞书机器人配置状态
+ * GET /api/notifications/feishu
+ */
+app.get('/api/notifications/feishu', (_req: Request, res: Response) => {
+  try {
+    const settings = sqliteStore.getFeishuSettings();
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        enabled: settings.enabled,
+        webhookConfigured: Boolean(settings.webhook),
+        webhookPreview: maskSecret(settings.webhook),
+        secretConfigured: Boolean(settings.secret),
+        lastSentAt: settings.lastSentAt,
+        lastError: settings.lastError,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: error instanceof Error ? error.message : 'Internal server error',
+      data: null,
+    });
+  }
+});
+
+/**
+ * 保存飞书机器人配置
+ * PATCH /api/notifications/feishu
+ */
+app.patch('/api/notifications/feishu', (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    const input: {
+      enabled?: boolean;
+      webhook?: string;
+      secret?: string;
+    } = {};
+
+    if (body.enabled !== undefined) {
+      input.enabled = Boolean(body.enabled);
+    }
+    if (body.webhook !== undefined) {
+      if (typeof body.webhook !== 'string') {
+        throw new Error('webhook must be a string');
+      }
+      const webhook = body.webhook.trim();
+      if (webhook && !/^https:\/\/(open\.feishu\.cn|open\.larksuite\.com)\/open-apis\/bot\/v2\/hook\//.test(webhook)) {
+        throw new Error('请输入有效的飞书群机器人 Webhook 地址');
+      }
+      input.webhook = webhook;
+    }
+    if (body.secret !== undefined) {
+      if (typeof body.secret !== 'string') {
+        throw new Error('secret must be a string');
+      }
+      input.secret = body.secret.trim();
+    }
+    if (body.clearWebhook === true) {
+      input.webhook = '';
+    }
+    if (body.clearSecret === true) {
+      input.secret = '';
+    }
+
+    const settings = sqliteStore.updateFeishuSettings(input);
+    res.json({
+      code: 200,
+      message: '保存成功',
+      data: {
+        enabled: settings.enabled,
+        webhookConfigured: Boolean(settings.webhook),
+        webhookPreview: maskSecret(settings.webhook),
+        secretConfigured: Boolean(settings.secret),
+        lastSentAt: settings.lastSentAt,
+        lastError: settings.lastError,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request';
+    res.status(400).json({ code: 400, message, data: null });
+  }
+});
+
+/**
+ * 测试发送飞书机器人消息
+ * POST /api/notifications/feishu/test
+ */
+app.post('/api/notifications/feishu/test', async (_req: Request, res: Response) => {
+  const settings = sqliteStore.getFeishuSettings();
+  try {
+    const result = await sendFeishuTest({ ...settings, enabled: true });
+    sqliteStore.updateFeishuSettings({ lastSentAt: result.sentAt, lastError: '' });
+    res.json({ code: 200, message: '测试消息已发送', data: { sentAt: result.sentAt } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '飞书测试发送失败';
+    sqliteStore.updateFeishuSettings({ lastError: message });
+    res.status(502).json({ code: 502, message, data: null });
+  }
+});
+
+/**
  * 获取提醒事件
  * GET /api/alerts/events?sinceId=0
  */
@@ -651,4 +755,14 @@ function parseAlertRuleBody(body: any, partial = false): Partial<{
     enabled: boolean;
     cooldownSeconds: number;
   }> & { targetPrice: number };
+}
+
+function maskSecret(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (value.length <= 12) {
+    return `${value.slice(0, 4)}****`;
+  }
+  return `${value.slice(0, 8)}****${value.slice(-4)}`;
 }

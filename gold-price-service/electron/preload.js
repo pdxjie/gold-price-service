@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld('goldDesktop', {
   endWindowDrag: () => ipcRenderer.send('window:drag-end'),
   minimize: () => ipcRenderer.invoke('window:minimize'),
   close: () => ipcRenderer.invoke('window:close'),
+  openSettings: () => ipcRenderer.invoke('settings:open'),
   notify: (title, body) => ipcRenderer.invoke('notify', { title, body }),
 });

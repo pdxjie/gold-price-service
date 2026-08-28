@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>金价浮窗设置</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./settings.css" />
+  </head>
+  <body class="settings-page">
+    <main class="settings-shell">
+      <header class="titlebar settings-titlebar">
+        <div class="title">
+          <span class="mark" aria-hidden="true"></span>
+          <span>设置</span>
+        </div>
+        <div class="window-actions">
+          <button id="settingsMinimizeButton" class="icon-button" type="button" title="最小化" aria-label="最小化">−</button>
+          <button id="settingsCloseButton" class="icon-button danger" type="button" title="关闭" aria-label="关闭">×</button>
+        </div>
+      </header>
+
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <div>
+            <h1>到价提醒</h1>
+            <p>价格穿越阈值时通知一次，回到正常范围后自动复位。</p>
+          </div>
+          <label class="switch" aria-label="启用到价提醒">
+            <input id="alertEnabled" type="checkbox" checked />
+            <span></span>
+          </label>
+        </div>
+        <div class="alert-thresholds">
+          <label class="alert-threshold">
+            <span class="alert-threshold-label high">高价</span>
+            <span class="amount-input">
+              <input id="highAlertPriceInput" type="number" min="1" step="0.01" placeholder="例如 980.00" aria-label="高价提醒价格" />
+              <span>元/克</span>
+            </span>
+          </label>
+          <label class="alert-threshold">
+            <span class="alert-threshold-label low">低价</span>
+            <span class="amount-input">
+              <input id="lowAlertPriceInput" type="number" min="1" step="0.01" placeholder="例如 900.00" aria-label="低价提醒价格" />
+              <span>元/克</span>
+            </span>
+          </label>
+          <button id="saveAlertButton" class="primary-button" type="button">保存提醒</button>
+        </div>
+        <div id="alertStatus" class="status-line">正在读取提醒设置</div>
+      </section>
+
+      <section class="settings-card settings-coming-card">
+        <div class="settings-card-head">
+          <div>
+            <h2>飞书机器人</h2>
+            <p>到价提醒触发后，自动发送消息到飞书群。</p>
+          </div>
+          <label class="switch" aria-label="启用飞书通知">
+            <input id="feishuEnabled" type="checkbox" />
+            <span></span>
+          </label>
+        </div>
+        <label class="settings-field">
+          <span>Webhook 地址</span>
+          <input id="feishuWebhook" type="url" inputmode="url" placeholder="粘贴飞书群机器人 Webhook" autocomplete="off" />
+          <small id="feishuWebhookHint">未配置</small>
+        </label>
+        <label class="settings-field">
+          <span>签名密钥（可选）</span>
+          <input id="feishuSecret" type="password" placeholder="机器人开启签名校验时填写" autocomplete="new-password" />
+          <small id="feishuSecretHint">未配置</small>
+        </label>
+        <div class="settings-actions">
+          <button id="saveFeishuButton" class="primary-button" type="button">保存飞书设置</button>
+          <button id="testFeishuButton" class="secondary-button" type="button">发送测试消息</button>
+          <button id="clearFeishuButton" class="text-button" type="button">清除配置</button>
+        </div>
+        <div id="feishuStatus" class="status-line">正在读取飞书设置</div>
+      </section>
+
+      <section class="settings-card settings-coming-card">
+        <div class="settings-card-head compact">
+          <div>
+            <h2>更多设置</h2>
+            <p>后续功能会集中放在这里。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="./settings.js"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ import path from 'path';
 import {
   AlertDirection,
   AlertEvent,
+  FeishuSettings,
   AlertRule,
   GoldPrice,
   PriceHistory,
@@ -49,6 +50,7 @@ interface AlertRuleRow {
   direction: AlertDirection;
   enabled: number;
   cooldown_seconds: number;
+  triggered: number;
   last_triggered_at: string | null;
   created_at: string;
   updated_at: string;
@@ -225,9 +227,9 @@ export class SQLiteStore {
     const result = this.db.prepare(`
       INSERT INTO alert_rules (
         symbol, target_price, direction, enabled, cooldown_seconds,
-        last_triggered_at, created_at, updated_at
+        triggered, last_triggered_at, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?)
     `).run(
       symbol,
       input.targetPrice,
@@ -284,6 +286,10 @@ export class SQLiteStore {
       direction: input.direction ?? current.direction,
       enabled: input.enabled ?? current.enabled,
       cooldownSeconds: input.cooldownSeconds ?? current.cooldownSeconds,
+      triggered: (input.targetPrice ?? current.targetPrice) === current.targetPrice
+        && (input.direction ?? current.direction) === current.direction
+        ? current.triggered
+        : false,
       updatedAt: new Date().toISOString(),
     };
 
@@ -294,6 +300,7 @@ export class SQLiteStore {
           direction = ?,
           enabled = ?,
           cooldown_seconds = ?,
+          triggered = ?,
           updated_at = ?
       WHERE id = ?
     `).run(
@@ -302,6 +309,7 @@ export class SQLiteStore {
       next.direction,
       next.enabled ? 1 : 0,
       next.cooldownSeconds,
+      next.triggered ? 1 : 0,
       next.updatedAt,
       id,
     );
@@ -312,6 +320,50 @@ export class SQLiteStore {
   deleteAlertRule(id: number): boolean {
     const result = this.db.prepare('DELETE FROM alert_rules WHERE id = ?').run(id);
     return result.changes > 0;
+  }
+
+  setAlertTriggered(id: number, triggered: boolean): void {
+    this.db.prepare(`
+      UPDATE alert_rules
+      SET triggered = ?, updated_at = ?
+      WHERE id = ?
+    `).run(triggered ? 1 : 0, new Date().toISOString(), id);
+  }
+
+  getFeishuSettings(): FeishuSettings {
+    const rows = this.db.prepare(`
+      SELECT key, value
+      FROM app_settings
+      WHERE key IN ('feishu_enabled', 'feishu_webhook', 'feishu_secret', 'feishu_last_sent_at', 'feishu_last_error')
+    `).all() as Array<{ key: string; value: string }>;
+    const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+
+    return {
+      enabled: values.feishu_enabled === '1',
+      webhook: values.feishu_webhook || undefined,
+      secret: values.feishu_secret || undefined,
+      lastSentAt: values.feishu_last_sent_at || undefined,
+      lastError: values.feishu_last_error || undefined,
+    };
+  }
+
+  updateFeishuSettings(input: Partial<FeishuSettings>): FeishuSettings {
+    if (input.enabled !== undefined) {
+      this.setAppSetting('feishu_enabled', input.enabled ? '1' : '0');
+    }
+    if (input.webhook !== undefined) {
+      this.setAppSetting('feishu_webhook', input.webhook);
+    }
+    if (input.secret !== undefined) {
+      this.setAppSetting('feishu_secret', input.secret);
+    }
+    if (input.lastSentAt !== undefined) {
+      this.setAppSetting('feishu_last_sent_at', input.lastSentAt);
+    }
+    if (input.lastError !== undefined) {
+      this.setAppSetting('feishu_last_error', input.lastError);
+    }
+    return this.getFeishuSettings();
   }
 
   recordAlertEvent(input: {
@@ -442,6 +494,7 @@ export class SQLiteStore {
         direction TEXT NOT NULL CHECK(direction IN ('below', 'above')),
         enabled INTEGER NOT NULL DEFAULT 1,
         cooldown_seconds INTEGER NOT NULL DEFAULT 1800,
+        triggered INTEGER NOT NULL DEFAULT 0,
         last_triggered_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -464,12 +517,31 @@ export class SQLiteStore {
 
       CREATE INDEX IF NOT EXISTS idx_alert_events_id
         ON alert_events(id);
+
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
+
+    const alertRuleColumns = this.db.prepare('PRAGMA table_info(alert_rules)').all() as Array<{ name: string }>;
+    if (!alertRuleColumns.some((column) => column.name === 'triggered')) {
+      this.db.exec('ALTER TABLE alert_rules ADD COLUMN triggered INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   private getAlertRule(id: number): AlertRule | null {
     const row = this.db.prepare('SELECT * FROM alert_rules WHERE id = ?').get(id) as AlertRuleRow | undefined;
     return row ? this.mapAlertRule(row) : null;
+  }
+
+  private setAppSetting(key: string, value: string): void {
+    this.db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(key, value, new Date().toISOString());
   }
 
   private getAlertEvent(id: number): AlertEvent | null {
@@ -504,6 +576,7 @@ export class SQLiteStore {
       direction: row.direction,
       enabled: row.enabled === 1,
       cooldownSeconds: row.cooldown_seconds,
+      triggered: row.triggered === 1,
       lastTriggeredAt: row.last_triggered_at ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

@@ -9,9 +9,11 @@ const BACKEND_PORT = Number(process.env.GOLD_DESKTOP_PORT || 3001);
 const API_BASE = `http://localhost:${BACKEND_PORT}`;
 
 let mainWindow = null;
+let settingsWindow = null;
 let backendProcess = null;
-const expandedWindowSize = [420, 960];
+const expandedWindowSize = [420, 850];
 const collapsedWindowSize = [260, 124];
+const settingsWindowSize = [420, 780];
 let windowCollapsed = false;
 const dragSessions = new Map();
 
@@ -169,6 +171,42 @@ function createWindow() {
   mainWindow.on('resize', keepWindowVisible);
 }
 
+function createSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    return settingsWindow;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: settingsWindowSize[0],
+    height: settingsWindowSize[1],
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#00000000',
+    title: '金价浮窗设置',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      additionalArguments: [`--api-base=${API_BASE}`],
+    },
+  });
+
+  settingsWindow.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+  });
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow?.show();
+  });
+  return settingsWindow;
+}
+
 app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
@@ -264,12 +302,19 @@ ipcMain.on('window:drag-move', (event, payload) => {
 ipcMain.on('window:drag-end', (event) => {
   endWindowDrag(event.sender);
 });
-ipcMain.handle('window:minimize', () => {
-  mainWindow?.minimize();
+ipcMain.handle('window:minimize', (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  window?.minimize();
 });
 
-ipcMain.handle('window:close', () => {
-  mainWindow?.close();
+ipcMain.handle('window:close', (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  window?.close();
+});
+
+ipcMain.handle('settings:open', () => {
+  createSettingsWindow();
+  return true;
 });
 
 ipcMain.handle('window:set-always-on-top', (_event, enabled) => {

@@ -31,6 +31,7 @@
           </span>
         </div>
         <div class="window-actions">
+          <button id="settingsButton" class="icon-button settings-control" type="button" title="设置" aria-label="打开设置"></button>
           <button id="toggleButton" class="icon-button toggle-control active" type="button" title="折叠" aria-label="折叠" aria-expanded="true"></button>
           <button id="minimizeButton" class="icon-button" type="button" title="最小化" aria-label="最小化">−</button>
           <button id="closeButton" class="icon-button danger" type="button" title="关闭" aria-label="关闭">×</button>
@@ -124,28 +125,6 @@
         </div>
         <canvas id="priceChart" width="680" height="260" role="img" aria-label="金价走势，移动鼠标查看价格和时间"></canvas>
         <div id="chartTooltip" class="chart-tooltip" role="status" aria-live="polite" hidden></div>
-      </section>
-
-      <section class="alert-section">
-        <div class="section-head">
-          <span>到价提醒</span>
-          <label class="switch" aria-label="启用到价提醒">
-            <input id="alertEnabled" type="checkbox" checked />
-            <span></span>
-          </label>
-        </div>
-        <div class="alert-controls">
-          <div class="segmented">
-            <button class="segment active" type="button" aria-pressed="true" data-direction="below">低于</button>
-            <button class="segment" type="button" aria-pressed="false" data-direction="above">高于</button>
-          </div>
-          <label class="amount-input">
-            <input id="targetPriceInput" type="number" min="1" step="0.01" placeholder="980.00" aria-label="提醒价格" />
-            <span>元/克</span>
-          </label>
-          <button id="saveAlertButton" class="primary-button" type="button">保存</button>
-        </div>
-        <div id="alertStatus" class="status-line">未设置提醒</div>
       </section>
 
       <footer class="footer">

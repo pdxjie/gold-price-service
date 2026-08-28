@@ -150,6 +150,18 @@ GET /api/alerts/events?sinceId=0
 
 桌面浮窗通过该接口轮询新事件，并触发系统通知。
 
+### 飞书机器人通知
+
+设置页面支持配置飞书群机器人 Webhook。提醒事件首次穿越高价或低价阈值时，会在系统通知之外发送一条飞书消息；价格回到正常范围后规则自动复位。
+
+```http
+GET /api/notifications/feishu
+PATCH /api/notifications/feishu
+POST /api/notifications/feishu/test
+```
+
+Webhook 只保存在本地 SQLite 中，接口和设置页面不会返回完整地址。机器人开启签名校验时，可在设置页面填写签名密钥。飞书通知发送失败不会阻塞价格采集或本地提醒事件。
+
 ### 管理接口
 
 ```http

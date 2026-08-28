@@ -23,10 +23,8 @@ const state = {
   history: [],
   recycle: [],
   fullGold: null,
-  rules: [],
   collector: null,
   selectedRange: '1h',
-  selectedDirection: 'below',
   liveConnected: false,
   collapsed: false,
   collapseInFlight: false,
@@ -76,10 +74,7 @@ const els = {
   holdingRecycleRate: document.getElementById('holdingRecycleRate'),
   holdingSaleValue: document.getElementById('holdingSaleValue'),
   holdingSaleProfit: document.getElementById('holdingSaleProfit'),
-  alertEnabled: document.getElementById('alertEnabled'),
-  targetPriceInput: document.getElementById('targetPriceInput'),
-  saveAlertButton: document.getElementById('saveAlertButton'),
-  alertStatus: document.getElementById('alertStatus'),
+  settingsButton: document.getElementById('settingsButton'),
   toggleButton: document.getElementById('toggleButton'),
   minimizeButton: document.getElementById('minimizeButton'),
   closeButton: document.getElementById('closeButton'),
@@ -335,12 +330,11 @@ async function refreshAll() {
 
   state.refreshInFlight = true;
   try {
-    const [latest, history, recycle, collector, rules] = await Promise.all([
+    const [latest, history, recycle, collector] = await Promise.all([
       fetchJson('/api/gold/latest?symbol=XAUUSD'),
       fetchJson(`/api/jd-gold/history?range=${state.selectedRange}`),
       fetchJson('/api/gold/recycle/latest'),
       fetchJson('/api/collector/status'),
-      fetchJson('/api/alerts/rules'),
     ]);
 
     state.latest = latest;
@@ -348,7 +342,6 @@ async function refreshAll() {
     state.historyIsDomestic = history?.symbol === 'CZB-JCJ';
     state.recycle = recycle || [];
     state.collector = collector;
-    state.rules = rules || [];
 
     await loadFullGoldData();
     if (state.recycle.length === 0) {
@@ -357,7 +350,6 @@ async function refreshAll() {
     render();
   } catch (error) {
     els.collectorStatus.textContent = '连接失败';
-    els.alertStatus.textContent = error.message;
   } finally {
     state.refreshInFlight = false;
   }
@@ -506,11 +498,8 @@ async function pollAlertEvents() {
     for (const event of events) {
       state.lastAlertEventId = Math.max(state.lastAlertEventId, event.id);
       const notified = await window.goldDesktop?.notify('金价提醒', event.message);
-      els.alertStatus.textContent = `已触发：${event.message}`;
-      els.alertStatus.classList.add('alert-triggered');
-      window.setTimeout(() => els.alertStatus.classList.remove('alert-triggered'), 5000);
       if (notified === false) {
-        els.alertStatus.textContent += '（系统通知不可用，已在窗口内提示）';
+        console.warn('系统通知不可用，金价提醒未弹出系统通知');
       }
     }
     localStorage.setItem('lastAlertEventId', String(state.lastAlertEventId));
@@ -523,7 +512,6 @@ function render() {
   renderBrandOptions();
   renderLatest();
   renderHolding();
-  renderAlertRule();
   renderCollapsedCard();
   drawChart();
 }
@@ -864,27 +852,6 @@ function renderCollapsedCard() {
   }));
 }
 
-function renderAlertRule() {
-  const rule = state.rules.find((item) => item.symbol === 'AU9999') || state.rules[0];
-  if (!rule) {
-    els.alertStatus.textContent = '未设置提醒';
-    return;
-  }
-
-  state.selectedDirection = rule.direction;
-  els.alertEnabled.checked = rule.enabled;
-  els.targetPriceInput.value = formatNumber(rule.targetPrice, 2);
-
-  document.querySelectorAll('.segment').forEach((button) => {
-    const selected = button.dataset.direction === rule.direction;
-    button.classList.toggle('active', selected);
-    button.setAttribute('aria-pressed', String(selected));
-  });
-
-  const directionText = rule.direction === 'below' ? '低于' : '高于';
-  els.alertStatus.textContent = `${directionText} ${formatNumber(rule.targetPrice, 2)} 元/克提醒`;
-}
-
 function getRangeChange() {
   const jdQuote = getFreshJdQuote();
   if (jdQuote?.zhejiangGold) {
@@ -1072,34 +1039,6 @@ function showChartTooltip(item, clientX, clientY) {
 function hideChartTooltip() {
   state.chartHoverIndex = -1;
   els.chartTooltip.hidden = true;
-}
-
-async function saveAlertRule() {
-  const targetPrice = Number(els.targetPriceInput.value);
-  if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
-    els.alertStatus.textContent = '请输入有效金额';
-    return;
-  }
-
-  const body = {
-    symbol: 'AU9999',
-    targetPrice,
-    direction: state.selectedDirection,
-    enabled: els.alertEnabled.checked,
-    cooldownSeconds: 1800,
-  };
-
-  const currentRule = state.rules.find((item) => item.symbol === 'AU9999');
-  const path = currentRule ? `/api/alerts/rules/${currentRule.id}` : '/api/alerts/rules';
-  const method = currentRule ? 'PATCH' : 'POST';
-
-  try {
-    await fetchJson(path, { method, body: JSON.stringify(body) });
-    await refreshAll();
-    els.alertStatus.textContent = '提醒已保存';
-  } catch (error) {
-    els.alertStatus.textContent = error.message;
-  }
 }
 
 function toggleCollapsed() {
@@ -1335,17 +1274,6 @@ els.holdingAssetList.addEventListener('click', (event) => {
   applyHoldingInputState();
 });
 
-document.querySelectorAll('.segment').forEach((button) => {
-  button.addEventListener('click', () => {
-    state.selectedDirection = button.dataset.direction;
-    document.querySelectorAll('.segment').forEach((item) => {
-      const selected = item === button;
-      item.classList.toggle('active', selected);
-      item.setAttribute('aria-pressed', String(selected));
-    });
-  });
-});
-
 function applyCollapsedState() {
   document.body.classList.toggle('collapsed', state.collapsed);
   els.toggleButton.title = state.collapsed ? '展开' : '折叠';
@@ -1404,7 +1332,7 @@ els.toggleButton.addEventListener('click', async () => {
 });
 els.minimizeButton.addEventListener('click', () => window.goldDesktop?.minimize());
 els.closeButton.addEventListener('click', () => window.goldDesktop?.close());
-els.saveAlertButton.addEventListener('click', saveAlertRule);
+els.settingsButton.addEventListener('click', () => window.goldDesktop?.openSettings());
 
 els.priceChart.addEventListener('mousemove', handleChartMove);
 els.priceChart.addEventListener('mouseleave', () => {

@@ -888,12 +888,31 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
-.alert-controls {
+.alert-thresholds {
   margin-top: 10px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 58px;
+  gap: 6px;
+}
+
+.alert-threshold {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
+}
+
+.alert-threshold-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alert-threshold-label.high {
+  color: #bd5b45;
+}
+
+.alert-threshold-label.low {
+  color: #4d7b68;
 }
 
 .amount-input {
@@ -933,6 +952,7 @@ select:focus-visible,
 
 .primary-button {
   height: 33px;
+  width: 100%;
   border-radius: 9px;
   background: var(--ink);
   color: #fff;
@@ -1131,6 +1151,12 @@ body.collapsed .collapsed-card {
 
 .toggle-control {
   position: relative;
+}
+
+.settings-control::before {
+  content: "⚙";
+  font-size: 16px;
+  line-height: 1;
 }
 
 .toggle-control::before {

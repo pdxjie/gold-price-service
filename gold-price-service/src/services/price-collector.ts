@@ -2,6 +2,7 @@
 import { CollectorStatus, GoldPrice } from '../types';
 import { priceAggregator } from './price-aggregator';
 import { sqliteStore } from './sqlite-store';
+import { sendFeishuAlert } from './feishu-notifier';
 
 export class PriceCollector {
   private priceTimer?: NodeJS.Timeout;
@@ -94,19 +95,25 @@ export class PriceCollector {
 
   private evaluateAlerts(price: GoldPrice): void {
     const rules = sqliteStore.getEnabledAlertRules(price.symbol);
-    const now = Date.now();
 
     for (const rule of rules) {
-      const triggered = rule.direction === 'below'
+      const outsideThreshold = rule.direction === 'below'
         ? price.price <= rule.targetPrice
         : price.price >= rule.targetPrice;
 
-      if (!triggered || !this.canTrigger(rule.lastTriggeredAt, rule.cooldownSeconds, now)) {
+      if (!outsideThreshold) {
+        if (rule.triggered) {
+          sqliteStore.setAlertTriggered(rule.id, false);
+        }
+        continue;
+      }
+
+      if (rule.triggered) {
         continue;
       }
 
       const directionText = rule.direction === 'below' ? '低于' : '高于';
-      sqliteStore.recordAlertEvent({
+      const event = sqliteStore.recordAlertEvent({
         ruleId: rule.id,
         symbol: rule.symbol,
         price: price.price,
@@ -114,15 +121,25 @@ export class PriceCollector {
         direction: rule.direction,
         message: `${price.symbol} 当前 ${price.price}${price.unit}，已${directionText}提醒价 ${rule.targetPrice}${price.unit}`,
       });
+      sqliteStore.setAlertTriggered(rule.id, true);
+      void this.sendFeishuNotification(event);
     }
   }
 
-  private canTrigger(lastTriggeredAt: string | undefined, cooldownSeconds: number, now: number): boolean {
-    if (!lastTriggeredAt) {
-      return true;
+  private async sendFeishuNotification(event: Awaited<ReturnType<typeof sqliteStore.recordAlertEvent>>): Promise<void> {
+    const settings = sqliteStore.getFeishuSettings();
+    if (!settings.enabled || !settings.webhook) {
+      return;
     }
 
-    return now - new Date(lastTriggeredAt).getTime() >= cooldownSeconds * 1000;
+    try {
+      const result = await sendFeishuAlert(event, settings);
+      sqliteStore.updateFeishuSettings({ lastSentAt: result.sentAt, lastError: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sqliteStore.updateFeishuSettings({ lastError: message });
+      console.error('Feishu alert error:', message);
+    }
   }
 }
 

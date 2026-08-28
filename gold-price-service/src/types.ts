@@ -81,6 +81,7 @@ export interface AlertRule {
   direction: AlertDirection;
   enabled: boolean;
   cooldownSeconds: number;
+  triggered: boolean;
   lastTriggeredAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -95,6 +96,14 @@ export interface AlertEvent {
   direction: AlertDirection;
   message: string;
   triggeredAt: string;
+}
+
+export interface FeishuSettings {
+  enabled: boolean;
+  webhook?: string;
+  secret?: string;
+  lastSentAt?: string;
+  lastError?: string;
 }
 
 export interface CollectorStatus {
