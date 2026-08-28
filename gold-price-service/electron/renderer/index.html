@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>金价浮窗</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="titlebar">
+        <div class="title">
+          <span class="mark"></span>
+          <span>金价浮窗</span>
+        </div>
+        <div class="window-actions">
+          <button id="pinButton" class="icon-button active" title="置顶" aria-label="置顶">⌃</button>
+          <button id="minimizeButton" class="icon-button" title="最小化" aria-label="最小化">−</button>
+          <button id="closeButton" class="icon-button danger" title="关闭" aria-label="关闭">×</button>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <div class="label-row">
+            <span id="sourceBadge" class="badge">连接中</span>
+            <span id="quoteTime" class="muted">--:--:--</span>
+          </div>
+          <div class="price-line">
+            <span id="currentPrice">--</span>
+            <span class="unit">元/克</span>
+          </div>
+          <div id="changeText" class="change neutral">等待采集</div>
+        </div>
+        <div class="mini-metrics">
+          <div>
+            <span>高</span>
+            <strong id="highPrice">--</strong>
+          </div>
+          <div>
+            <span>低</span>
+            <strong id="lowPrice">--</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="chart-section">
+        <div class="section-head">
+          <span>走势</span>
+          <div class="range-tabs" role="tablist">
+            <button class="range-tab active" data-range="15m">15m</button>
+            <button class="range-tab" data-range="1h">1h</button>
+            <button class="range-tab" data-range="1d">1d</button>
+          </div>
+        </div>
+        <canvas id="priceChart" width="680" height="260"></canvas>
+      </section>
+
+      <section class="recycle-section">
+        <div>
+          <span class="sub-label">回收价</span>
+          <strong id="recyclePrice">--</strong>
+        </div>
+        <div>
+          <span class="sub-label">回收差价</span>
+          <strong id="spreadPrice">--</strong>
+        </div>
+      </section>
+
+      <section class="alert-section">
+        <div class="section-head">
+          <span>到价提醒</span>
+          <label class="switch">
+            <input id="alertEnabled" type="checkbox" checked />
+            <span></span>
+          </label>
+        </div>
+        <div class="alert-controls">
+          <div class="segmented">
+            <button class="segment active" data-direction="below">低于</button>
+            <button class="segment" data-direction="above">高于</button>
+          </div>
+          <label class="amount-input">
+            <input id="targetPriceInput" type="number" min="1" step="0.01" placeholder="980.00" />
+            <span>元/克</span>
+          </label>
+          <button id="saveAlertButton" class="primary-button">保存</button>
+        </div>
+        <div id="alertStatus" class="status-line">未设置提醒</div>
+      </section>
+
+      <footer class="footer">
+        <span id="collectorStatus">采集器连接中</span>
+        <span id="updatedAt">--</span>
+      </footer>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

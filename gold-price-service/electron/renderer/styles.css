@@ -1,0 +1,379 @@
+:root {
+  color-scheme: light;
+  --gold: #c8952d;
+  --gold-strong: #946213;
+  --ink: #191714;
+  --muted: #7c756b;
+  --line: rgba(64, 54, 38, 0.12);
+  --panel: rgba(255, 252, 246, 0.94);
+  --panel-strong: #fff8ec;
+  --red: #c63f35;
+  --green: #16805e;
+  --shadow: 0 22px 55px rgba(33, 26, 15, 0.22);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+.shell {
+  width: 100vw;
+  height: 100vh;
+  padding: 14px;
+  display: grid;
+  grid-template-rows: auto auto minmax(178px, 1fr) auto auto auto;
+  gap: 10px;
+  border: 1px solid rgba(97, 78, 42, 0.16);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 249, 238, 0.94)),
+    var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.titlebar {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  -webkit-app-region: drag;
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 4px rgba(200, 149, 45, 0.14);
+}
+
+.window-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.icon-button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(72, 61, 43, 0.08);
+  color: var(--muted);
+  line-height: 1;
+}
+
+.icon-button:hover,
+.icon-button.active {
+  background: rgba(200, 149, 45, 0.18);
+  color: var(--gold-strong);
+}
+
+.icon-button.danger:hover {
+  background: rgba(198, 63, 53, 0.14);
+  color: var(--red);
+}
+
+.hero,
+.chart-section,
+.alert-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.hero {
+  padding: 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  min-height: 128px;
+}
+
+.label-row,
+.section-head,
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.badge {
+  min-width: 58px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(22, 128, 94, 0.12);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.muted,
+.sub-label,
+.footer,
+.status-line {
+  color: var(--muted);
+}
+
+.price-line {
+  margin-top: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+#currentPrice {
+  font-size: 46px;
+  line-height: 0.98;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.unit {
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.change {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.change.up {
+  color: var(--red);
+}
+
+.change.down {
+  color: var(--green);
+}
+
+.change.neutral {
+  color: var(--muted);
+}
+
+.mini-metrics {
+  width: 78px;
+  display: grid;
+  gap: 8px;
+}
+
+.mini-metrics div {
+  height: 42px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
+.mini-metrics span,
+.sub-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+
+.mini-metrics strong,
+.recycle-section strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-section {
+  padding: 12px 12px 8px;
+  min-height: 186px;
+}
+
+.section-head {
+  height: 28px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.range-tabs,
+.segmented {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(66, 54, 35, 0.08);
+}
+
+.range-tab,
+.segment {
+  min-width: 39px;
+  height: 24px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.range-tab.active,
+.segment.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 5px rgba(58, 46, 24, 0.12);
+}
+
+#priceChart {
+  width: 100%;
+  height: calc(100% - 30px);
+  min-height: 128px;
+  display: block;
+}
+
+.recycle-section {
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.recycle-section > div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.alert-section {
+  padding: 12px;
+}
+
+.switch {
+  width: 38px;
+  height: 22px;
+  position: relative;
+}
+
+.switch input {
+  display: none;
+}
+
+.switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(72, 61, 43, 0.18);
+}
+
+.switch span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.18);
+  transition: transform 0.16s ease;
+}
+
+.switch input:checked + span {
+  background: rgba(200, 149, 45, 0.72);
+}
+
+.switch input:checked + span::after {
+  transform: translateX(16px);
+}
+
+.alert-controls {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 58px;
+  gap: 8px;
+  align-items: center;
+}
+
+.amount-input {
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.amount-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount-input span {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.primary-button {
+  height: 32px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.primary-button:active {
+  transform: translateY(1px);
+}
+
+.status-line {
+  height: 18px;
+  margin-top: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.footer {
+  min-height: 18px;
+  font-size: 11px;
+}
