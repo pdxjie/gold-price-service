@@ -11,6 +11,7 @@ import { priceCollector } from './services/price-collector';
 import { sqliteStore } from './services/sqlite-store';
 import akshareService from './services/akshare';
 import { sendFeishuTest } from './services/feishu-notifier';
+import { sendWecomTest } from './services/wecom-notifier';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -199,14 +200,24 @@ app.get('/api/gold/history', (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/jd-gold/history', (req: Request, res: Response) => {
+let akshareBackfillPromise: Promise<void> = Promise.resolve();
+
+app.get('/api/jd-gold/history', async (req: Request, res: Response) => {
   try {
+    await akshareBackfillPromise;
     const range = (req.query.range as string) || '1h';
     const symbol = 'CZB-JCJ';
+    let history = sqliteStore.getPriceHistory(symbol, range);
+    if (history.data.length < 2) {
+      const fallback = sqliteStore.getPriceHistory('AU9999', range);
+      if (fallback.data.length > history.data.length) {
+        history = { symbol, data: fallback.data };
+      }
+    }
     res.json({
       code: 200,
       message: '获取成功',
-      data: sqliteStore.getPriceHistory(symbol, range),
+      data: history,
     });
   } catch (error) {
     console.error('Get JD gold history error:', error);
@@ -562,6 +573,82 @@ app.post('/api/notifications/feishu/test', async (_req: Request, res: Response) 
   }
 });
 
+app.get('/api/notifications/wecom', (_req: Request, res: Response) => {
+  try {
+    const settings = sqliteStore.getWecomSettings();
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        enabled: settings.enabled,
+        webhookConfigured: Boolean(settings.webhook),
+        webhookPreview: maskSecret(settings.webhook),
+        lastSentAt: settings.lastSentAt,
+        lastError: settings.lastError,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: error instanceof Error ? error.message : 'Internal server error',
+      data: null,
+    });
+  }
+});
+
+app.patch('/api/notifications/wecom', (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    const input: { enabled?: boolean; webhook?: string } = {};
+
+    if (body.enabled !== undefined) {
+      input.enabled = Boolean(body.enabled);
+    }
+    if (body.webhook !== undefined) {
+      if (typeof body.webhook !== 'string') {
+        throw new Error('webhook must be a string');
+      }
+      const webhook = body.webhook.trim();
+      if (webhook && !/^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=[\w-]+$/i.test(webhook)) {
+        throw new Error('请输入有效的企业微信群机器人 Webhook 地址');
+      }
+      input.webhook = webhook;
+    }
+    if (body.clearWebhook === true) {
+      input.webhook = '';
+    }
+
+    const settings = sqliteStore.updateWecomSettings(input);
+    res.json({
+      code: 200,
+      message: '保存成功',
+      data: {
+        enabled: settings.enabled,
+        webhookConfigured: Boolean(settings.webhook),
+        webhookPreview: maskSecret(settings.webhook),
+        lastSentAt: settings.lastSentAt,
+        lastError: settings.lastError,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request';
+    res.status(400).json({ code: 400, message, data: null });
+  }
+});
+
+app.post('/api/notifications/wecom/test', async (_req: Request, res: Response) => {
+  const settings = sqliteStore.getWecomSettings();
+  try {
+    const result = await sendWecomTest({ ...settings, enabled: true });
+    sqliteStore.updateWecomSettings({ lastSentAt: result.sentAt, lastError: '' });
+    res.json({ code: 200, message: '测试消息已发送', data: { sentAt: result.sentAt } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '企业微信测试发送失败';
+    sqliteStore.updateWecomSettings({ lastError: message });
+    res.status(502).json({ code: 502, message, data: null });
+  }
+});
+
 /**
  * 获取提醒事件
  * GET /api/alerts/events?sinceId=0
@@ -648,12 +735,38 @@ async function backfillBullionVaultHistory(): Promise<void> {
     console.error('BullionVault history backfill failed:', error);
   }
 }
+
+async function backfillAkshareHistory(): Promise<void> {
+  try {
+    const history = await akshareService.getGoldHistory('3m');
+    let saved = 0;
+    for (const point of history.data) {
+      const timestamp = new Date(`${point.date}T08:00:00.000Z`).toISOString();
+      sqliteStore.savePriceTick({
+        symbol: 'CZB-JCJ',
+        name: '积存金历史参考',
+        price: point.price,
+        unit: '元/克',
+        open: point.open,
+        high: point.high,
+        low: point.low,
+        quoteTime: timestamp,
+        fetchTime: new Date().toISOString(),
+        source: history.source,
+      }, timestamp, true);
+      saved += 1;
+    }
+    console.log(`📚 AKShare/SGE history backfilled: ${saved} points`);
+  } catch (error) {
+    console.error('AKShare history backfill failed:', error);
+  }
+}
 /**
  * 启动服务器
  */
 httpServer.listen(PORT, () => {
   console.log('='.repeat(50));
-  console.log('🚀 Gold Price Service Started');
+  console.log('🚀 Jinmai Gold Monitor Started');
   console.log('='.repeat(50));
   console.log(`📡 Server: http://localhost:${PORT}`);
   console.log(`🔌 WebSocket: ws://localhost:${PORT}${goldWebSocketService.getStatus().path}`);
@@ -670,6 +783,8 @@ httpServer.listen(PORT, () => {
     void backfillBullionVaultHistory();
     console.log('📡 BullionVault STOMP live feed enabled');
   }
+
+  akshareBackfillPromise = backfillAkshareHistory();
 
   if (process.env.JD_GOLD_ENABLED !== 'false') {
     jdGoldLiveService.start();

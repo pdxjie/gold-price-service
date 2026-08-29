@@ -5,6 +5,7 @@ import {
   AlertDirection,
   AlertEvent,
   FeishuSettings,
+  WecomSettings,
   AlertRule,
   GoldPrice,
   PriceHistory,
@@ -142,10 +143,11 @@ export class SQLiteStore {
       WHERE symbol = ? AND created_at >= ?
       ORDER BY created_at ASC
     `).all(symbol, cutoff) as PriceTickRow[];
+    const sampledRows = this.samplePriceRows(rows, 1200);
 
     return {
       symbol,
-      data: rows.map((row) => ({
+      data: sampledRows.map((row) => ({
         timestamp: row.created_at,
         price: row.price,
         open: row.open ?? undefined,
@@ -154,6 +156,19 @@ export class SQLiteStore {
         close: row.price,
       })),
     };
+  }
+
+  private samplePriceRows(rows: PriceTickRow[], maxPoints: number): PriceTickRow[] {
+    if (rows.length <= maxPoints) {
+      return rows;
+    }
+
+    const sampled: PriceTickRow[] = [];
+    const step = (rows.length - 1) / (maxPoints - 1);
+    for (let index = 0; index < maxPoints; index += 1) {
+      sampled.push(rows[Math.round(index * step)]);
+    }
+    return sampled;
   }
 
   saveRecyclePrices(recyclePrices: RecyclePrice[], fetchTime = new Date().toISOString()): void {
@@ -364,6 +379,38 @@ export class SQLiteStore {
       this.setAppSetting('feishu_last_error', input.lastError);
     }
     return this.getFeishuSettings();
+  }
+
+  getWecomSettings(): WecomSettings {
+    const rows = this.db.prepare(`
+      SELECT key, value
+      FROM app_settings
+      WHERE key IN ('wecom_enabled', 'wecom_webhook', 'wecom_last_sent_at', 'wecom_last_error')
+    `).all() as Array<{ key: string; value: string }>;
+    const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+
+    return {
+      enabled: values.wecom_enabled === '1',
+      webhook: values.wecom_webhook || undefined,
+      lastSentAt: values.wecom_last_sent_at || undefined,
+      lastError: values.wecom_last_error || undefined,
+    };
+  }
+
+  updateWecomSettings(input: Partial<WecomSettings>): WecomSettings {
+    if (input.enabled !== undefined) {
+      this.setAppSetting('wecom_enabled', input.enabled ? '1' : '0');
+    }
+    if (input.webhook !== undefined) {
+      this.setAppSetting('wecom_webhook', input.webhook);
+    }
+    if (input.lastSentAt !== undefined) {
+      this.setAppSetting('wecom_last_sent_at', input.lastSentAt);
+    }
+    if (input.lastError !== undefined) {
+      this.setAppSetting('wecom_last_error', input.lastError);
+    }
+    return this.getWecomSettings();
   }
 
   recordAlertEvent(input: {

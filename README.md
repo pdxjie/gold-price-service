@@ -52,6 +52,19 @@ BULLIONVAULT_STALE_AFTER_MS=120000
 
 脚本会进入 `gold-price-service/`，读取 `.nvmrc`，并启动 Electron。Electron 会自动检查 `http://localhost:3001`，如果后端没运行，会自动拉起本地后端。
 
+## 跨平台打包
+
+项目支持 Windows 和 macOS。GitHub Actions 工作流位于 `.github/workflows/build-desktop.yml`，支持 Windows x64、macOS Intel 和 macOS Apple Silicon。
+
+推送版本标签即可自动构建并创建 GitHub Release：
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+也可以在 GitHub 的 Actions 页面手动运行 `Build Desktop Apps`；手动运行只上传构建产物，不创建 Release。macOS 安装包包含 `.dmg` 和 `.zip` 两种格式。当前没有配置 Apple Developer 签名和公证，首次打开可能需要在 Finder 中右键应用并选择“打开”。
+
 ## 只启动后端
 
 ```bash

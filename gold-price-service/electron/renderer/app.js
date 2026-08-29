@@ -24,7 +24,7 @@ const state = {
   recycle: [],
   fullGold: null,
   collector: null,
-  selectedRange: '1h',
+  selectedRange: '3m',
   liveConnected: false,
   collapsed: false,
   collapseInFlight: false,
@@ -926,10 +926,10 @@ function drawChart() {
   const points = state.history;
   state.chartPoints = [];
   state.chartMetrics = { padding, plotWidth };
-  if (points.length < 2) {
+  if (points.length === 0) {
     ctx.fillStyle = '#6e6e73';
     ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText('等待更多采集点', padding.left, height / 2);
+    ctx.fillText('等待采集数据', padding.left, height / 2);
     hideChartTooltip();
     return;
   }
@@ -939,7 +939,7 @@ function drawChart() {
   const max = Math.max(...prices);
   const span = Math.max(max - min, 0.01);
   const coordinates = points.map((point, index) => ({
-    x: padding.left + (plotWidth * index) / (points.length - 1),
+    x: points.length === 1 ? padding.left + plotWidth / 2 : padding.left + (plotWidth * index) / (points.length - 1),
     y: padding.top + plotHeight - ((prices[index] - min) / span) * plotHeight,
     point,
     price: prices[index],

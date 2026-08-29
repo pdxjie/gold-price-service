@@ -1,4 +1,6 @@
-# Gold Price Service
+# 金脉
+
+金脉启动时会从上海黄金交易所历史数据接口加载近三个月 Au99.99 日线数据，写入本地 SQLite；实时行情到达后继续写入同一条历史链路，曲线会持续累计。该接口与 AKShare 的 `spot_hist_sge(symbol="Au99.99")` 使用相同的数据源和字段，不需要终端用户额外安装 Python。
 
 本地金价数据服务 + Electron 桌面浮窗。
 
@@ -31,6 +33,25 @@ PORT=3001 npm run dev
 ```bash
 npm run desktop
 ```
+
+生成 Windows 安装包：
+
+```bash
+npm run pack:win
+```
+
+生成 macOS 安装包：
+
+```bash
+npm run pack:mac:x64     # Intel Mac
+npm run pack:mac:arm64  # Apple Silicon（M1/M2/M3/M4）
+```
+
+也可以通过 GitHub Actions 自动构建 Windows、macOS Intel 和 macOS Apple Silicon。推送 `v1.0.1` 这类版本标签后，工作流会自动创建 GitHub Release 并上传全部安装包；在 Actions 页面手动运行工作流时只构建并上传构建产物，不创建 Release。
+
+macOS 构建当前未配置 Apple Developer 签名与公证，首次打开时可能需要在 Finder 中右键应用选择“打开”。正式面向大量用户发布时，建议在 GitHub Secrets 中加入 Developer ID、签名证书和公证凭据。
+
+安装包会输出到 `release/` 目录。普通用户安装后不需要 Node.js，后端由 Electron 内置运行时启动；行情和提醒数据会保存到系统用户数据目录。
 
 如果 Electron 下载较慢：
 

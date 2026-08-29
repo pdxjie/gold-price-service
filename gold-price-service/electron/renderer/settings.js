@@ -17,12 +17,20 @@ const els = {
   testFeishuButton: document.getElementById('testFeishuButton'),
   clearFeishuButton: document.getElementById('clearFeishuButton'),
   feishuStatus: document.getElementById('feishuStatus'),
+  wecomEnabled: document.getElementById('wecomEnabled'),
+  wecomWebhook: document.getElementById('wecomWebhook'),
+  wecomWebhookHint: document.getElementById('wecomWebhookHint'),
+  saveWecomButton: document.getElementById('saveWecomButton'),
+  testWecomButton: document.getElementById('testWecomButton'),
+  clearWecomButton: document.getElementById('clearWecomButton'),
+  wecomStatus: document.getElementById('wecomStatus'),
 };
 
 let feishuWebhookConfigured = false;
 let feishuSecretConfigured = false;
 let clearFeishuWebhook = false;
 let clearFeishuSecret = false;
+let clearWecomWebhook = false;
 
 function formatPrice(value) {
   return Number(value).toFixed(2);
@@ -155,6 +163,92 @@ function clearFeishuSettings() {
   els.feishuStatus.textContent = '点击保存后清除飞书配置';
 }
 
+function renderWecomSettings(settings) {
+  clearWecomWebhook = false;
+  els.wecomEnabled.checked = settings.enabled === true;
+  els.wecomWebhook.value = '';
+  els.wecomWebhook.placeholder = settings.webhookPreview
+    ? `已配置：${settings.webhookPreview}，留空则保持不变`
+    : '粘贴企业微信群机器人 Webhook';
+  els.wecomWebhookHint.textContent = settings.webhookConfigured ? '已配置，输入新地址可替换' : '未配置';
+  els.wecomStatus.textContent = settings.lastError
+    ? `上次发送失败：${settings.lastError}`
+    : settings.lastSentAt
+      ? `上次发送：${settings.lastSentAt}`
+      : '尚未发送消息';
+}
+
+async function loadWecomSettings() {
+  try {
+    renderWecomSettings(await fetchJson('/api/notifications/wecom'));
+  } catch (error) {
+    els.wecomStatus.textContent = error.message;
+  }
+}
+
+async function saveWecomSettings() {
+  els.saveWecomButton.disabled = true;
+  els.wecomStatus.textContent = '正在保存…';
+  try {
+    const body = {
+      enabled: els.wecomEnabled.checked,
+      ...(els.wecomWebhook.value.trim() ? { webhook: els.wecomWebhook.value.trim() } : {}),
+      ...(clearWecomWebhook ? { clearWebhook: true } : {}),
+    };
+    renderWecomSettings(await fetchJson('/api/notifications/wecom', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }));
+    els.wecomStatus.textContent = '企业微信设置已保存';
+    return true;
+  } catch (error) {
+    els.wecomStatus.textContent = error.message;
+    return false;
+  } finally {
+    els.saveWecomButton.disabled = false;
+  }
+}
+
+async function testWecomSettings() {
+  els.testWecomButton.disabled = true;
+  els.wecomStatus.textContent = '正在发送测试消息…';
+  try {
+    const saved = await saveWecomSettings();
+    if (!saved) return;
+    const result = await fetchJson('/api/notifications/wecom/test', { method: 'POST' });
+    els.wecomStatus.textContent = `测试消息已发送：${result.sentAt}`;
+    await loadWecomSettings();
+    els.wecomStatus.textContent = `测试消息已发送：${result.sentAt}`;
+  } catch (error) {
+    els.wecomStatus.textContent = error.message;
+  } finally {
+    els.testWecomButton.disabled = false;
+  }
+}
+
+function clearWecomSettings() {
+  els.wecomEnabled.checked = false;
+  els.wecomWebhook.value = '';
+  clearWecomWebhook = true;
+  els.wecomWebhookHint.textContent = '将清除 Webhook';
+  els.wecomStatus.textContent = '点击保存后清除企业微信配置';
+}
+
+function clearWecomPendingRemovalWhenTyping() {
+  if (els.wecomWebhook.value.trim()) clearWecomWebhook = false;
+}
+
+function setNotificationTab(tabName) {
+  document.querySelectorAll('.notification-tab').forEach((tab) => {
+    const active = tab.dataset.notificationTab === tabName;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('.notification-panel').forEach((panel) => {
+    panel.hidden = panel.id !== `${tabName}Panel`;
+  });
+}
+
 async function saveAlertRules() {
   els.saveAlertButton.disabled = true;
   els.alertStatus.textContent = '正在保存…';
@@ -210,5 +304,13 @@ els.testFeishuButton.addEventListener('click', testFeishuSettings);
 els.clearFeishuButton.addEventListener('click', clearFeishuSettings);
 els.feishuWebhook.addEventListener('input', clearPendingRemovalWhenTyping);
 els.feishuSecret.addEventListener('input', clearPendingRemovalWhenTyping);
+els.saveWecomButton.addEventListener('click', saveWecomSettings);
+els.testWecomButton.addEventListener('click', testWecomSettings);
+els.clearWecomButton.addEventListener('click', clearWecomSettings);
+els.wecomWebhook.addEventListener('input', clearWecomPendingRemovalWhenTyping);
+document.querySelectorAll('.notification-tab').forEach((tab) => {
+  tab.addEventListener('click', () => setNotificationTab(tab.dataset.notificationTab));
+});
 loadRules();
 loadFeishuSettings();
+loadWecomSettings();

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Notification, screen } = require('electron');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -93,6 +93,28 @@ function resolveNodeBinary() {
   return candidates.find((candidate) => candidate === 'node' || fs.existsSync(candidate)) || 'node';
 }
 
+function resolveBackendEntry() {
+  if (app.isPackaged) {
+    return {
+      binary: process.execPath,
+      args: [path.join(app.getAppPath(), 'dist', 'server.js')],
+      cwd: app.getPath('userData'),
+      runAsElectronNode: true,
+    };
+  }
+
+  const nodeBinary = resolveNodeBinary();
+  const tsNodeBin = path.join(PROJECT_ROOT, 'node_modules', 'ts-node', 'dist', 'bin.js');
+  const distServer = path.join(PROJECT_ROOT, 'dist', 'server.js');
+  const useDist = process.env.GOLD_DESKTOP_USE_DIST === 'true';
+  return {
+    binary: nodeBinary,
+    args: useDist ? [distServer] : [tsNodeBin, path.join(PROJECT_ROOT, 'src', 'server.ts')],
+    cwd: PROJECT_ROOT,
+    runAsElectronNode: false,
+  };
+}
+
 async function waitForBackend(timeoutMs = 10000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -109,23 +131,24 @@ async function ensureBackend() {
     return true;
   }
 
-  const nodeBinary = resolveNodeBinary();
-  const tsNodeBin = path.join(PROJECT_ROOT, 'node_modules', 'ts-node', 'dist', 'bin.js');
-  const distServer = path.join(PROJECT_ROOT, 'dist', 'server.js');
-  const entryArgs = fs.existsSync(distServer) && process.env.GOLD_DESKTOP_USE_DIST === 'true'
-    ? [distServer]
-    : [tsNodeBin, path.join(PROJECT_ROOT, 'src', 'server.ts')];
+  const backend = resolveBackendEntry();
+  if (!fs.existsSync(backend.args[backend.args.length - 1])) {
+    throw new Error(`后端入口不存在：${backend.args[backend.args.length - 1]}`);
+  }
 
-  backendProcess = spawn(nodeBinary, entryArgs, {
-    cwd: PROJECT_ROOT,
+  backendProcess = spawn(backend.binary, backend.args, {
+    cwd: backend.cwd,
     env: {
       ...process.env,
       PORT: String(BACKEND_PORT),
+      GOLD_DB_PATH: process.env.GOLD_DB_PATH || path.join(app.getPath('userData'), 'data', 'gold-prices.sqlite'),
       JD_GOLD_POLL_INTERVAL_MS: process.env.JD_GOLD_POLL_INTERVAL_MS || '2000',
       COLLECT_INTERVAL_MS: process.env.COLLECT_INTERVAL_MS || '5000',
       RECYCLE_COLLECT_INTERVAL_MS: process.env.RECYCLE_COLLECT_INTERVAL_MS || '60000',
+      ...(backend.runAsElectronNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
 
   backendProcess.stdout.on('data', (chunk) => {
@@ -157,7 +180,7 @@ function createWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: '#00000000',
-    title: '金价浮窗',
+    title: '金脉',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -188,7 +211,7 @@ function createSettingsWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: '#00000000',
-    title: '金价浮窗设置',
+    title: '金脉设置',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -212,7 +235,14 @@ app.whenReady().then(async () => {
     app.dock.hide();
   }
 
-  await ensureBackend();
+  try {
+    await ensureBackend();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    dialog.showErrorBox('金脉启动失败', `后端服务无法启动。\n\n${message}`);
+    app.quit();
+    return;
+  }
   createWindow();
 });
 

@@ -3,6 +3,7 @@ import { CollectorStatus, GoldPrice } from '../types';
 import { priceAggregator } from './price-aggregator';
 import { sqliteStore } from './sqlite-store';
 import { sendFeishuAlert } from './feishu-notifier';
+import { sendWecomAlert } from './wecom-notifier';
 
 export class PriceCollector {
   private priceTimer?: NodeJS.Timeout;
@@ -122,15 +123,20 @@ export class PriceCollector {
         message: `${price.symbol} 当前 ${price.price}${price.unit}，已${directionText}提醒价 ${rule.targetPrice}${price.unit}`,
       });
       sqliteStore.setAlertTriggered(rule.id, true);
-      void this.sendFeishuNotification(event);
+      void this.sendNotifications(event);
     }
+  }
+
+  private async sendNotifications(event: Awaited<ReturnType<typeof sqliteStore.recordAlertEvent>>): Promise<void> {
+    await Promise.all([
+      this.sendFeishuNotification(event),
+      this.sendWecomNotification(event),
+    ]);
   }
 
   private async sendFeishuNotification(event: Awaited<ReturnType<typeof sqliteStore.recordAlertEvent>>): Promise<void> {
     const settings = sqliteStore.getFeishuSettings();
-    if (!settings.enabled || !settings.webhook) {
-      return;
-    }
+    if (!settings.enabled || !settings.webhook) return;
 
     try {
       const result = await sendFeishuAlert(event, settings);
@@ -139,6 +145,20 @@ export class PriceCollector {
       const message = error instanceof Error ? error.message : String(error);
       sqliteStore.updateFeishuSettings({ lastError: message });
       console.error('Feishu alert error:', message);
+    }
+  }
+
+  private async sendWecomNotification(event: Awaited<ReturnType<typeof sqliteStore.recordAlertEvent>>): Promise<void> {
+    const settings = sqliteStore.getWecomSettings();
+    if (!settings.enabled || !settings.webhook) return;
+
+    try {
+      const result = await sendWecomAlert(event, settings);
+      sqliteStore.updateWecomSettings({ lastSentAt: result.sentAt, lastError: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sqliteStore.updateWecomSettings({ lastError: message });
+      console.error('WeCom alert error:', message);
     }
   }
 }

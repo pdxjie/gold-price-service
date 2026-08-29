@@ -2,12 +2,18 @@
   "name": "gold-price-service",
   "version": "1.0.0",
   "description": "本地金价数据采集服务",
-  "main": "dist/server.js",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "ts-node src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "desktop": "electron electron/main.js",
+    "pack:win": "npm run build && electron-builder --win nsis",
+    "pack:portable": "npm run build && electron-builder --win portable",
+    "pack:mac": "npm run build && electron-builder --mac dmg zip",
+    "pack:mac:x64": "npm run build && electron-builder --mac dmg zip --x64",
+    "pack:mac:arm64": "npm run build && electron-builder --mac dmg zip --arm64",
+    "pack": "npm run build && electron-builder --win nsis portable",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "engines": {
@@ -38,7 +44,47 @@
     "@types/sockjs-client": "^1.5.4",
     "@types/ws": "^8.18.1",
     "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.pdxjie.goldpriceservice",
+    "productName": "金脉",
+    "icon": "electron/renderer/icon.svg",
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "Jinmai-Setup-${version}.${ext}",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "金脉",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": ["dmg", "zip"],
+      "artifactName": "Jinmai-${version}-${arch}.${ext}",
+      "hardenedRuntime": false
+    }
   }
 }

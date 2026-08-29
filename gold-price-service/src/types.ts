@@ -106,6 +106,13 @@ export interface FeishuSettings {
   lastError?: string;
 }
 
+export interface WecomSettings {
+  enabled: boolean;
+  webhook?: string;
+  lastSentAt?: string;
+  lastError?: string;
+}
+
 export interface CollectorStatus {
   running: boolean;
   symbol: string;

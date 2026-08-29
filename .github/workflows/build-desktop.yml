@@ -1,0 +1,97 @@
+name: Build Desktop Apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2025
+            command: npm run pack:win -- --publish never
+            artifact: windows-x64
+            files: |
+              gold-price-service/release/*.exe
+              gold-price-service/release/*.blockmap
+          - name: macOS Intel
+            runner: macos-15-intel
+            command: npm run pack:mac:x64 -- --publish never
+            artifact: macos-x64
+            files: |
+              gold-price-service/release/*.dmg
+              gold-price-service/release/*.zip
+          - name: macOS Apple Silicon
+            runner: macos-15
+            command: npm run pack:mac:arm64 -- --publish never
+            artifact: macos-arm64
+            files: |
+              gold-price-service/release/*.dmg
+              gold-price-service/release/*.zip
+
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: gold-price-service
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gold-price-service/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: ${{ matrix.command }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "金脉 ${GITHUB_REF_NAME}" \
+            --generate-notes

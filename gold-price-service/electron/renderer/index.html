@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>金价浮窗</title>
+    <title>金脉</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -24,7 +24,7 @@
       <header class="titlebar">
         <div class="title">
           <span class="mark" aria-hidden="true"></span>
-          <span>金价浮窗</span>
+          <span>金脉</span>
           <span class="live-status" aria-live="polite">
             <span id="liveStatusDot" class="live-status-dot" aria-hidden="true"></span>
             <span id="liveStatus">连接中</span>
@@ -118,9 +118,9 @@
           <span>价格曲线</span>
           <div class="range-tabs" role="tablist" aria-label="价格时间范围">
             <button class="range-tab" type="button" role="tab" aria-selected="false" data-range="15m">15分钟</button>
-            <button class="range-tab active" type="button" role="tab" aria-selected="true" data-range="1h">1小时</button>
+            <button class="range-tab" type="button" role="tab" aria-selected="false" data-range="1h">1小时</button>
             <button class="range-tab" type="button" role="tab" aria-selected="false" data-range="1d">1天</button>
-            <button class="range-tab" type="button" role="tab" aria-selected="false" data-range="3m">3个月</button>
+            <button class="range-tab active" type="button" role="tab" aria-selected="true" data-range="3m">3个月</button>
           </div>
         </div>
         <canvas id="priceChart" width="680" height="260" role="img" aria-label="金价走势，移动鼠标查看价格和时间"></canvas>

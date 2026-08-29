@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>金价浮窗设置</title>
+    <title>金脉设置</title>
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./settings.css" />
   </head>
@@ -51,43 +51,64 @@
         <div id="alertStatus" class="status-line">正在读取提醒设置</div>
       </section>
 
-      <section class="settings-card settings-coming-card">
+      <section class="settings-card notification-card">
         <div class="settings-card-head">
           <div>
-            <h2>飞书机器人</h2>
-            <p>到价提醒触发后，自动发送消息到飞书群。</p>
+            <h2>消息通知</h2>
+            <p>到价提醒触发后，推送到你选择的群聊。</p>
           </div>
-          <label class="switch" aria-label="启用飞书通知">
-            <input id="feishuEnabled" type="checkbox" />
-            <span></span>
+        </div>
+        <div class="notification-tabs" role="tablist" aria-label="通知平台">
+          <button class="notification-tab active" type="button" role="tab" aria-selected="true" aria-controls="feishuPanel" data-notification-tab="feishu">飞书</button>
+          <button class="notification-tab" type="button" role="tab" aria-selected="false" aria-controls="wecomPanel" data-notification-tab="wecom">企业微信</button>
+        </div>
+        <div id="feishuPanel" class="notification-panel" role="tabpanel">
+          <div class="notification-panel-head">
+            <span>飞书群机器人</span>
+            <label class="switch" aria-label="启用飞书通知">
+              <input id="feishuEnabled" type="checkbox" />
+              <span></span>
+            </label>
+          </div>
+          <label class="settings-field">
+            <span>Webhook 地址</span>
+            <input id="feishuWebhook" type="url" inputmode="url" placeholder="粘贴飞书群机器人 Webhook" autocomplete="off" />
+            <small id="feishuWebhookHint">未配置</small>
           </label>
+          <label class="settings-field">
+            <span>签名密钥（可选）</span>
+            <input id="feishuSecret" type="password" placeholder="机器人开启签名校验时填写" autocomplete="new-password" />
+            <small id="feishuSecretHint">未配置</small>
+          </label>
+          <div class="settings-actions">
+            <button id="saveFeishuButton" class="primary-button" type="button">保存飞书设置</button>
+            <button id="testFeishuButton" class="secondary-button" type="button">发送测试消息</button>
+            <button id="clearFeishuButton" class="text-button" type="button">清除配置</button>
+          </div>
+          <div id="feishuStatus" class="status-line">正在读取飞书设置</div>
         </div>
-        <label class="settings-field">
-          <span>Webhook 地址</span>
-          <input id="feishuWebhook" type="url" inputmode="url" placeholder="粘贴飞书群机器人 Webhook" autocomplete="off" />
-          <small id="feishuWebhookHint">未配置</small>
-        </label>
-        <label class="settings-field">
-          <span>签名密钥（可选）</span>
-          <input id="feishuSecret" type="password" placeholder="机器人开启签名校验时填写" autocomplete="new-password" />
-          <small id="feishuSecretHint">未配置</small>
-        </label>
-        <div class="settings-actions">
-          <button id="saveFeishuButton" class="primary-button" type="button">保存飞书设置</button>
-          <button id="testFeishuButton" class="secondary-button" type="button">发送测试消息</button>
-          <button id="clearFeishuButton" class="text-button" type="button">清除配置</button>
+        <div id="wecomPanel" class="notification-panel" role="tabpanel" hidden>
+          <div class="notification-panel-head">
+            <span>企业微信群机器人</span>
+            <label class="switch" aria-label="启用企业微信通知">
+              <input id="wecomEnabled" type="checkbox" />
+              <span></span>
+            </label>
+          </div>
+          <label class="settings-field">
+            <span>Webhook 地址</span>
+            <input id="wecomWebhook" type="url" inputmode="url" placeholder="粘贴企业微信群机器人 Webhook" autocomplete="off" />
+            <small id="wecomWebhookHint">未配置</small>
+          </label>
+          <div class="settings-actions">
+            <button id="saveWecomButton" class="primary-button" type="button">保存企业微信设置</button>
+            <button id="testWecomButton" class="secondary-button" type="button">发送测试消息</button>
+            <button id="clearWecomButton" class="text-button" type="button">清除配置</button>
+          </div>
+          <div id="wecomStatus" class="status-line">正在读取企业微信设置</div>
         </div>
-        <div id="feishuStatus" class="status-line">正在读取飞书设置</div>
       </section>
 
-      <section class="settings-card settings-coming-card">
-        <div class="settings-card-head compact">
-          <div>
-            <h2>更多设置</h2>
-            <p>后续功能会集中放在这里。</p>
-          </div>
-        </div>
-      </section>
     </main>
     <script src="./settings.js"></script>
   </body>

@@ -9,7 +9,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
   border: 1px solid rgba(60, 60, 67, 0.2);
   border-radius: 20px;
   background: var(--surface);
@@ -17,6 +19,10 @@
   -webkit-backdrop-filter: blur(24px) saturate(1.25);
   backdrop-filter: blur(24px) saturate(1.25);
   -webkit-app-region: no-drag;
+}
+
+.settings-shell::-webkit-scrollbar {
+  display: none;
 }
 
 .settings-titlebar {
@@ -63,6 +69,46 @@
 
 .settings-card-head.compact {
   align-items: center;
+}
+
+.notification-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(60, 60, 67, 0.08);
+}
+
+.notification-tab {
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.notification-tab.active {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(60, 60, 67, 0.12);
+}
+
+.notification-panel[hidden] {
+  display: none;
+}
+
+.notification-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .settings-card .alert-thresholds {
