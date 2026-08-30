@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Notification, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Notification, screen, Tray, Menu, globalShortcut } = require('electron');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -11,11 +11,19 @@ const API_BASE = `http://localhost:${BACKEND_PORT}`;
 let mainWindow = null;
 let settingsWindow = null;
 let backendProcess = null;
+let tray = null;
+let isQuitting = false;
 const expandedWindowSize = [420, 850];
 const collapsedWindowSize = [260, 124];
-const settingsWindowSize = [420, 780];
+const settingsWindowSize = [420, 1040];
 let windowCollapsed = false;
 const dragSessions = new Map();
+
+const collapsedSizes = {
+  compact: [236, 96],
+  normal: [260, 124],
+  wide: [320, 124],
+};
 
 function moveWindowFromDrag(session, pointerX, pointerY) {
   if (!session || session.window.isDestroyed()) {
@@ -190,8 +198,30 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
   mainWindow.on('move', keepWindowVisible);
   mainWindow.on('resize', keepWindowVisible);
+}
+
+function createTray() {
+  if (tray) return;
+  tray = new Tray(path.join(__dirname, 'renderer', 'icon-tray.png'));
+  tray.setToolTip('金脉');
+  tray.on('click', () => {
+    if (mainWindow?.isVisible()) mainWindow.hide();
+    else mainWindow?.show();
+  });
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示金脉', click: () => mainWindow?.show() },
+    { label: '打开设置', click: () => createSettingsWindow() },
+    { type: 'separator' },
+    { label: '退出', click: () => { isQuitting = true; app.quit(); } },
+  ]));
 }
 
 function createSettingsWindow() {
@@ -231,6 +261,9 @@ function createSettingsWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (app.isPackaged) {
+    app.setLoginItemSettings({ openAtLogin: true, path: process.execPath });
+  }
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
   }
@@ -244,13 +277,25 @@ app.whenReady().then(async () => {
     return;
   }
   createWindow();
+  createTray();
+  globalShortcut.register('CommandOrControl+Shift+G', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.webContents.send('window:toggle-collapsed');
+  });
 });
 
 app.on('window-all-closed', () => {
-  app.quit();
+  if (process.platform !== 'darwin') {
+    return;
+  }
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
+  globalShortcut.unregisterAll();
+  tray?.destroy();
+  tray = null;
   if (backendProcess) {
     backendProcess.kill('SIGTERM');
   }
@@ -278,6 +323,19 @@ ipcMain.handle('window:set-collapsed', (_event, collapsed) => {
 
   windowCollapsed = nextCollapsed;
   return windowCollapsed;
+});
+ipcMain.handle('window:set-collapsed-size', (_event, sizeName) => {
+  const size = collapsedSizes[sizeName] || collapsedSizes.normal;
+  if (!mainWindow || mainWindow.isDestroyed() || !windowCollapsed) return sizeName;
+  const bounds = mainWindow.getBounds();
+  mainWindow.setBounds({
+    x: bounds.x + Math.round((bounds.width - size[0]) / 2),
+    y: bounds.y + Math.round((bounds.height - size[1]) / 2),
+    width: size[0],
+    height: size[1],
+  }, false);
+  keepWindowVisible();
+  return sizeName;
 });
 ipcMain.on('window:drag-start', (event, payload) => {
   const window = BrowserWindow.fromWebContents(event.sender);
@@ -345,6 +403,73 @@ ipcMain.handle('window:close', (event) => {
 ipcMain.handle('settings:open', () => {
   createSettingsWindow();
   return true;
+});
+
+ipcMain.handle('settings:set-startup', (_event, enabled) => {
+  app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: process.execPath });
+  return app.getLoginItemSettings().openAtLogin;
+});
+
+ipcMain.handle('settings:get-startup', () => app.getLoginItemSettings().openAtLogin);
+
+ipcMain.handle('settings:apply-appearance', (_event, settings) => {
+  mainWindow?.webContents.send('appearance:changed', settings || {});
+  return true;
+});
+
+ipcMain.handle('data:export', async (_event, payload) => {
+  const format = ['xlsx', 'csv', 'json'].includes(payload?.format) ? payload.format : 'json';
+  const extension = format;
+  const result = await dialog.showSaveDialog({
+    title: '导出金脉数据',
+    defaultPath: path.join(app.getPath('documents'), `jinmai-backup-${new Date().toISOString().slice(0, 10)}.${extension}`),
+    filters: [{ name: format.toUpperCase(), extensions: [extension] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  const safePayload = { ...payload, exportedAt: new Date().toISOString(), notifications: undefined };
+  if (format === 'json') {
+    fs.writeFileSync(result.filePath, JSON.stringify(safePayload, null, 2), 'utf8');
+  } else {
+    const XLSX = require('xlsx');
+    const holdings = Object.entries(payload?.holdings?.holdings || {}).flatMap(([mode, items]) => (items || []).map((item) => ({ mode, ...item })));
+    const rules = payload?.rules || [];
+    const rows = format === 'csv'
+      ? [{ type: 'meta', exportedAt: safePayload.exportedAt }, ...holdings.map((item) => ({ type: 'holding', ...item })), ...rules.map((item) => ({ type: 'alert', ...item }))]
+      : undefined;
+    if (format === 'csv') {
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      fs.writeFileSync(result.filePath, XLSX.utils.sheet_to_csv(sheet), 'utf8');
+    } else {
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(holdings), '资产');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rules), '提醒');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{ exportedAt: safePayload.exportedAt }]), '信息');
+      XLSX.writeFile(workbook, result.filePath);
+    }
+  }
+  return { canceled: false, filePath: result.filePath };
+});
+
+ipcMain.handle('data:import', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '导入金脉数据',
+    properties: ['openFile'],
+    filters: [{ name: '备份文件', extensions: ['json', 'csv', 'xlsx'] }],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const filePath = result.filePaths[0];
+  const extension = path.extname(filePath).slice(1).toLowerCase();
+  if (extension === 'json') return { canceled: false, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) };
+  const XLSX = require('xlsx');
+  const workbook = XLSX.readFile(filePath);
+  const rows = extension === 'csv'
+    ? XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]])
+    : (workbook.SheetNames.includes('资产') ? XLSX.utils.sheet_to_json(workbook.Sheets['资产']) : []);
+  const rules = extension === 'xlsx' && workbook.SheetNames.includes('提醒')
+    ? XLSX.utils.sheet_to_json(workbook.Sheets['提醒'])
+    : rows.filter((row) => row.type === 'alert');
+  const holdings = rows.filter((row) => row.type !== 'meta' && row.type !== 'alert');
+  return { canceled: false, data: { holdings: { holdings: holdings.reduce((result, item) => { const mode = item.mode || 'market'; (result[mode] ||= []).push(item); return result; }, {}) }, rules } };
 });
 
 ipcMain.handle('window:set-always-on-top', (_event, enabled) => {

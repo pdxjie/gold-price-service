@@ -14,9 +14,26 @@
           <span class="mark" aria-hidden="true"></span>
           <span>设置</span>
         </div>
-        <div class="window-actions">
-          <button id="settingsMinimizeButton" class="icon-button" type="button" title="最小化" aria-label="最小化">−</button>
-          <button id="settingsCloseButton" class="icon-button danger" type="button" title="关闭" aria-label="关闭">×</button>
+        <div class="window-actions settings-toolbar">
+          <span id="backupStatus" class="toolbar-status" aria-live="polite"></span>
+          <button id="importDataButton" class="icon-button toolbar-button" type="button" data-tooltip="导入备份" aria-label="导入备份">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 12-4-4m4 4 4-4M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2" /></svg>
+          </button>
+          <button id="exportJsonButton" class="icon-button toolbar-button" type="button" data-tooltip="导出 JSON" aria-label="导出 JSON">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h5M8 13h8M8 17h6" /></svg><small>JSON</small>
+          </button>
+          <button id="exportCsvButton" class="icon-button toolbar-button" type="button" data-tooltip="导出 CSV" aria-label="导出 CSV">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h5M8 13h8M8 17h8" /></svg><small>CSV</small>
+          </button>
+          <button id="exportXlsxButton" class="icon-button toolbar-button" type="button" data-tooltip="导出 XLSX" aria-label="导出 XLSX">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h5M8 12h8M8 16h8M12 10v8" /></svg><small>XLSX</small>
+          </button>
+          <button id="settingsMinimizeButton" class="icon-button toolbar-button" type="button" data-tooltip="最小化" aria-label="最小化">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+          </button>
+          <button id="settingsCloseButton" class="icon-button danger toolbar-button" type="button" data-tooltip="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
         </div>
       </header>
 
@@ -35,20 +52,32 @@
           <label class="alert-threshold">
             <span class="alert-threshold-label high">高价</span>
             <span class="amount-input">
-              <input id="highAlertPriceInput" type="number" min="1" step="0.01" placeholder="例如 980.00" aria-label="高价提醒价格" />
+              <input id="highAlertPriceInput" type="number" min="1" step="0.01" placeholder="" aria-label="高价提醒价格" />
               <span>元/克</span>
             </span>
           </label>
           <label class="alert-threshold">
             <span class="alert-threshold-label low">低价</span>
             <span class="amount-input">
-              <input id="lowAlertPriceInput" type="number" min="1" step="0.01" placeholder="例如 900.00" aria-label="低价提醒价格" />
+              <input id="lowAlertPriceInput" type="number" min="1" step="0.01" placeholder="" aria-label="低价提醒价格" />
               <span>元/克</span>
             </span>
           </label>
+          <label class="settings-field alert-source-field cooldown-field">
+            <span>重复提醒间隔</span>
+            <select id="alertCooldownSelect">
+               <option value="0">仅首次穿越（复位后再通知）</option>
+               <option value="1800">每次穿越间隔 30 分钟</option>
+               <option value="3600">每次穿越间隔 1 小时</option>
+               <option value="86400">每次穿越间隔 1 天</option>
+             </select>
+             <small id="alertCooldownHint">仅首次穿越提醒，价格回到正常区间后自动复位。</small>
+           </label>
           <button id="saveAlertButton" class="primary-button" type="button">保存提醒</button>
         </div>
         <div id="alertStatus" class="status-line">正在读取提醒设置</div>
+        <div class="alert-history-head"><span>最近通知记录</span><span class="alert-history-actions"><button id="testAlertButton" class="text-button" type="button">测试提醒</button><button id="simulateAlertButton" class="text-button" type="button">动态演示</button></span></div>
+        <div id="alertHistory" class="alert-history"><span class="empty-state">暂无通知记录</span></div>
       </section>
 
       <section class="settings-card notification-card">

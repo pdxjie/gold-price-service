@@ -69,12 +69,14 @@ export class PriceAggregatorService {
       return this.getBullionVaultLatestPrice();
     }
 
-    if (normalizedSymbol === 'AU9999' || normalizedSymbol === 'CZB-JCJ' || normalizedSymbol === 'AUTD') {
+    if (normalizedSymbol === 'AU9999' || normalizedSymbol === 'CZB-JCJ' || normalizedSymbol === 'MS-JCJ' || normalizedSymbol === 'AUTD') {
       try {
         const quote = await jdGoldLiveService.waitForLatestQuote(5000);
         const instrument: JdMarketInstrument = normalizedSymbol === 'AUTD'
           ? quote.goldTd || quote.zhejiangGold
-          : quote.zhejiangGold;
+          : normalizedSymbol === 'MS-JCJ'
+            ? quote.minshengGold || quote.zhejiangGold
+            : quote.zhejiangGold;
         return this.toJdGoldPrice(quote, symbol, instrument);
       } catch (error) {
         console.error('JD gold fetch error:', error);

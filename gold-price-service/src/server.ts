@@ -11,11 +11,24 @@ import { priceCollector } from './services/price-collector';
 import { sqliteStore } from './services/sqlite-store';
 import akshareService from './services/akshare';
 import { sendFeishuTest } from './services/feishu-notifier';
+import { sendFeishuAlert } from './services/feishu-notifier';
 import { sendWecomTest } from './services/wecom-notifier';
+import { sendWecomAlert } from './services/wecom-notifier';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const httpServer = createServer(app);
+let alertSimulationTimer: NodeJS.Timeout | undefined;
+let alertSimulationStopTimer: NodeJS.Timeout | undefined;
+let alertSimulationRunning = false;
+let alertSimulationRuleIds: number[] = [];
+
+function cleanupAlertSimulationRules(): void {
+  for (const ruleId of alertSimulationRuleIds) {
+    sqliteStore.deleteAlertRule(ruleId);
+  }
+  alertSimulationRuleIds = [];
+}
 
 goldWebSocketService.attach(httpServer, () => {
   const messages: GoldWebSocketMessage[] = [];
@@ -657,11 +670,12 @@ app.get('/api/alerts/events', (req: Request, res: Response) => {
   try {
     const sinceId = Number(req.query.sinceId || 0);
     const limit = Math.min(Number(req.query.limit || 50), 200);
+    const latest = req.query.latest === 'true';
 
     res.json({
       code: 200,
       message: '获取成功',
-      data: sqliteStore.getAlertEvents(sinceId, limit),
+      data: sqliteStore.getAlertEvents(sinceId, limit, latest),
     });
   } catch (error) {
     console.error('Get alert events error:', error);
@@ -671,6 +685,152 @@ app.get('/api/alerts/events', (req: Request, res: Response) => {
       data: null,
     });
   }
+});
+
+app.post('/api/alerts/test', async (req: Request, res: Response) => {
+  const body = req.body || {};
+  const event = {
+    id: 0,
+    ruleId: 0,
+    symbol: typeof body.symbol === 'string' ? body.symbol : 'AU9999',
+    price: Number(body.price) || 980,
+    targetPrice: Number(body.targetPrice) || 980,
+    direction: body.direction === 'below' ? 'below' as const : 'above' as const,
+    message: typeof body.message === 'string' ? body.message : '这是一条提醒测试消息',
+    triggeredAt: new Date().toISOString(),
+  };
+  const result: Record<string, string> = {};
+  const feishu = sqliteStore.getFeishuSettings();
+  const wecom = sqliteStore.getWecomSettings();
+  if (feishu.enabled && feishu.webhook) {
+    try { const sent = await sendFeishuAlert(event, feishu); sqliteStore.updateFeishuSettings({ lastSentAt: sent.sentAt, lastError: '' }); result.feishu = 'sent'; }
+    catch (error) { result.feishu = error instanceof Error ? error.message : String(error); }
+  }
+  if (wecom.enabled && wecom.webhook) {
+    try { const sent = await sendWecomAlert(event, wecom); sqliteStore.updateWecomSettings({ lastSentAt: sent.sentAt, lastError: '' }); result.wecom = 'sent'; }
+    catch (error) { result.wecom = error instanceof Error ? error.message : String(error); }
+  }
+  res.json({ code: 200, message: '测试提醒已处理', data: { ...event, channels: result } });
+});
+
+app.get('/api/alerts/simulation/status', (_req: Request, res: Response) => {
+  res.json({ code: 200, message: '获取成功', data: { running: alertSimulationRunning } });
+});
+
+app.post('/api/alerts/simulation/start', async (req: Request, res: Response) => {
+  if (alertSimulationRunning) {
+    res.json({ code: 200, message: '动态行情演示已在运行', data: { running: true } });
+    return;
+  }
+
+  const highTarget = Number(req.body?.highTarget);
+  const lowTarget = Number(req.body?.lowTarget);
+  const targetDefinitions: Array<{ direction: AlertDirection; targetPrice: number }> = [
+    Number.isFinite(highTarget) && highTarget > 0 ? { direction: 'above', targetPrice: highTarget } : undefined,
+    Number.isFinite(lowTarget) && lowTarget > 0 ? { direction: 'below', targetPrice: lowTarget } : undefined,
+  ].filter((item): item is { direction: AlertDirection; targetPrice: number } => Boolean(item));
+  let basePrice = Number(req.body?.basePrice);
+
+  try {
+    const currentQuote = jdGoldLiveService.getLatestQuote();
+    if (!Number.isFinite(basePrice) || basePrice <= 0) {
+      basePrice = currentQuote?.zhejiangGold.price || 980;
+    }
+
+    cleanupAlertSimulationRules();
+    const simulationTargets = targetDefinitions.length > 0
+      ? targetDefinitions
+      : [{ direction: 'above' as const, targetPrice: Number((basePrice + 0.5).toFixed(2)) }];
+    alertSimulationRuleIds = simulationTargets.map((target) => {
+      const temporaryRule = sqliteStore.createAlertRule({
+        symbol: 'AU9999',
+        targetPrice: target.targetPrice,
+        direction: target.direction,
+        enabled: true,
+        cooldownSeconds: 0,
+      });
+      return temporaryRule.id;
+    });
+    const simulationRuleIds = new Set(alertSimulationRuleIds);
+
+    const high = targetDefinitions.find((target) => target.direction === 'above')?.targetPrice;
+    const low = targetDefinitions.find((target) => target.direction === 'below')?.targetPrice;
+    const normalPrice = high && low && low < high
+      ? Number(((low + high) / 2).toFixed(2))
+      : low
+        ? Number((low + 0.5).toFixed(2))
+        : high
+          ? Number((high - 0.5).toFixed(2))
+          : basePrice;
+    const sequence = [normalPrice];
+    if (high) {
+      sequence.push(Number((high + 0.08).toFixed(2)), normalPrice);
+    }
+    if (low) {
+      sequence.push(Number((low - 0.08).toFixed(2)), normalPrice);
+    }
+    if (sequence.length === 1) {
+      sequence.push(Number((normalPrice + 0.58).toFixed(2)), normalPrice);
+    }
+    let index = 0;
+    alertSimulationRunning = true;
+
+    const emitSimulationTick = () => {
+      const quote = jdGoldLiveService.getLatestQuote();
+      const price = sequence[index % sequence.length];
+      index += 1;
+      if (quote) {
+        const now = new Date();
+        const syntheticQuote = {
+          ...quote,
+          fetchedAt: now.toISOString(),
+          fetchedAtMs: now.getTime(),
+          zhejiangGold: {
+            ...quote.zhejiangGold,
+            price,
+            change: Number((price - (quote.zhejiangGold.preClose || price)).toFixed(2)),
+            quoteTime: now.toISOString(),
+          },
+        };
+        goldWebSocketService.broadcast('jd-gold.quote', syntheticQuote);
+      }
+      priceCollector.evaluateExternalPrice({
+        symbol: 'AU9999',
+        name: '实时金价动态演示',
+        price,
+        unit: '元/克',
+        quoteTime: new Date().toISOString(),
+        fetchTime: new Date().toISOString(),
+        source: 'alert-simulation',
+      }, simulationRuleIds);
+    };
+
+    emitSimulationTick();
+    alertSimulationTimer = setInterval(emitSimulationTick, 1800);
+    alertSimulationStopTimer = setTimeout(() => {
+      if (alertSimulationTimer) clearInterval(alertSimulationTimer);
+      alertSimulationTimer = undefined;
+      alertSimulationStopTimer = undefined;
+      alertSimulationRunning = false;
+      cleanupAlertSimulationRules();
+    }, 30000);
+
+    res.json({ code: 200, message: '动态行情演示已开始', data: { running: true, durationSeconds: 30, temporaryRuleIds: alertSimulationRuleIds } });
+  } catch (error) {
+    alertSimulationRunning = false;
+    cleanupAlertSimulationRules();
+    res.status(500).json({ code: 500, message: error instanceof Error ? error.message : '动态行情演示启动失败', data: null });
+  }
+});
+
+app.post('/api/alerts/simulation/stop', (_req: Request, res: Response) => {
+  if (alertSimulationTimer) clearInterval(alertSimulationTimer);
+  if (alertSimulationStopTimer) clearTimeout(alertSimulationStopTimer);
+  alertSimulationTimer = undefined;
+  alertSimulationStopTimer = undefined;
+  alertSimulationRunning = false;
+  cleanupAlertSimulationRules();
+  res.json({ code: 200, message: '动态行情演示已停止', data: { running: false } });
 });
 
 /**
@@ -696,19 +856,26 @@ app.use((err: Error, _req: Request, res: Response, _next: any) => {
   });
 });
 
-let lastJdPrice: number | undefined;
+const lastJdPrices = new Map<string, number>();
 
 jdGoldLiveService.addListener((quote) => {
   goldWebSocketService.broadcast('jd-gold.quote', quote);
-  if (lastJdPrice === quote.zhejiangGold.price) {
-    return;
-  }
-
-  try {
-    sqliteStore.savePriceTick(priceAggregator.toJdGoldPrice(quote, 'CZB-JCJ'));
-    lastJdPrice = quote.zhejiangGold.price;
-  } catch (error) {
-    console.error('Persist JD gold quote error:', error);
+  const instruments = [
+    { symbol: 'CZB-JCJ', instrument: quote.zhejiangGold },
+    ...(quote.minshengGold ? [{ symbol: 'MS-JCJ', instrument: quote.minshengGold }] : []),
+  ];
+  for (const { symbol, instrument } of instruments) {
+    if (lastJdPrices.get(symbol) === instrument.price) {
+      continue;
+    }
+    try {
+      const price = priceAggregator.toJdGoldPrice(quote, symbol, instrument);
+      sqliteStore.savePriceTick(price);
+      priceCollector.evaluateExternalPrice(price);
+      lastJdPrices.set(symbol, instrument.price);
+    } catch (error) {
+      console.error(`Persist JD gold quote error (${symbol}):`, error);
+    }
   }
 });
 

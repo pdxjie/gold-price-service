@@ -35,7 +35,8 @@
     "iconv-lite": "^0.6.3",
     "node-cache": "^5.1.2",
     "sockjs-client": "^1.6.1",
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -63,10 +64,13 @@
       "output": "release"
     },
     "win": {
+      "icon": "electron/renderer/icon.svg",
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "Jinmai-Setup-${version}.${ext}",
@@ -81,8 +85,12 @@
       "deleteAppDataOnUninstall": false
     },
     "mac": {
+      "icon": "electron/renderer/icon.svg",
       "category": "public.app-category.finance",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "artifactName": "Jinmai-${version}-${arch}.${ext}",
       "hardenedRuntime": false
     }

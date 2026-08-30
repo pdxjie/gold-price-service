@@ -82,7 +82,20 @@ export class PriceCollector {
     this.collectingRecycle = true;
     try {
       const fullData = await priceAggregator.getFullGoldData();
-      sqliteStore.saveRecyclePrices(fullData.data.recycle || []);
+      const recyclePrices = fullData.data.recycle || [];
+      sqliteStore.saveRecyclePrices(recyclePrices);
+      const goldRecycle = recyclePrices.find((item) => item.type.includes('黄金') && !item.type.includes('22k') && !item.type.includes('18k') && !item.type.includes('14k')) || recyclePrices[0];
+      if (goldRecycle) {
+        this.evaluateExternalPrice({
+          symbol: 'AU9999-RECYCLE',
+          name: '黄金回收价',
+          price: goldRecycle.price,
+          unit: goldRecycle.unit,
+          quoteTime: new Date(goldRecycle.updatedAt).toISOString(),
+          fetchTime: new Date().toISOString(),
+          source: 'gold-recycle',
+        });
+      }
       sqliteStore.cleanupOldPriceTicks();
       this.lastRecycleCollectAt = new Date().toISOString();
       this.lastError = undefined;
@@ -94,8 +107,15 @@ export class PriceCollector {
     }
   }
 
-  private evaluateAlerts(price: GoldPrice): void {
-    const rules = sqliteStore.getEnabledAlertRules(price.symbol);
+  evaluateExternalPrice(price: GoldPrice, ruleIds?: ReadonlySet<number>): void {
+    this.evaluateAlerts(price, ruleIds);
+  }
+
+  private evaluateAlerts(price: GoldPrice, ruleIds?: ReadonlySet<number>): void {
+    const rules = [
+      ...sqliteStore.getEnabledAlertRules(price.symbol),
+      ...sqliteStore.getEnabledAlertRules(`${price.symbol}-REDEEM`),
+    ].filter((rule) => !ruleIds || ruleIds.has(rule.id));
 
     for (const rule of rules) {
       const outsideThreshold = rule.direction === 'below'
@@ -113,14 +133,22 @@ export class PriceCollector {
         continue;
       }
 
+      const cooldownReady = rule.cooldownSeconds <= 0 || !rule.lastTriggeredAt
+        || Date.now() - new Date(rule.lastTriggeredAt).getTime() >= rule.cooldownSeconds * 1000;
+      if (!cooldownReady) {
+        sqliteStore.setAlertTriggered(rule.id, true);
+        continue;
+      }
+
       const directionText = rule.direction === 'below' ? '低于' : '高于';
+      const actionText = rule.direction === 'below' ? '是否可以考虑买入？' : '是否可以考虑卖出？';
       const event = sqliteStore.recordAlertEvent({
         ruleId: rule.id,
         symbol: rule.symbol,
         price: price.price,
         targetPrice: rule.targetPrice,
         direction: rule.direction,
-        message: `${price.symbol} 当前 ${price.price}${price.unit}，已${directionText}提醒价 ${rule.targetPrice}${price.unit}`,
+        message: `${getAlertSymbolLabel(price.symbol)}当前 ${price.price}${price.unit}，已${directionText}提醒价 ${rule.targetPrice}${price.unit}，${actionText}`,
       });
       sqliteStore.setAlertTriggered(rule.id, true);
       void this.sendNotifications(event);
@@ -161,6 +189,21 @@ export class PriceCollector {
       console.error('WeCom alert error:', message);
     }
   }
+}
+
+function getAlertSymbolLabel(symbol: string): string {
+  const labels: Record<string, string> = {
+    AU9999: '国内参考金价',
+    'CZB-JCJ': '浙商积存金',
+    'MS-JCJ': '民生积存金',
+    'AU9999-REDEEM': '国内参考赎回价',
+    'CZB-JCJ-REDEEM': '浙商积存金赎回价',
+    'MS-JCJ-REDEEM': '民生积存金赎回价',
+    'AU9999-RECYCLE': '黄金回收价',
+    'CZB-JCJ-RECYCLE': '浙商积存金回收价',
+    'MS-JCJ-RECYCLE': '民生积存金回收价',
+  };
+  return `${labels[symbol] || symbol} `;
 }
 
 export const priceCollector = new PriceCollector();

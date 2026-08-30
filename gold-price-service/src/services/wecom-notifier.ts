@@ -1,4 +1,5 @@
 import { AlertEvent, WecomSettings } from '../types';
+import { formatBeijingTime } from './notification-format';
 
 export interface WecomNotificationResult {
   sentAt: string;
@@ -13,11 +14,10 @@ function buildRequestBody(text: string): Record<string, unknown> {
 
 function buildAlertText(event: AlertEvent): string {
   return [
-    '金价到价提醒',
-    `当前价格：${event.price}${event.symbol === 'AU9999' ? '元/克' : ''}`,
-    `提醒条件：${event.direction === 'above' ? '高于' : '低于'} ${event.targetPrice}${event.symbol === 'AU9999' ? '元/克' : ''}`,
-    `触发时间：${event.triggeredAt}`,
+    '金脉到价提醒',
     event.message,
+    `触发时间：${formatBeijingTime(event.triggeredAt)}`,
+    '仅供参考，请结合自身持仓和市场情况判断。',
   ].join('\n');
 }
 
@@ -54,7 +54,7 @@ export function sendWecomTest(settings: WecomSettings): Promise<WecomNotificatio
   const text = [
     '金脉通知测试',
     '企业微信机器人配置成功，后续到价提醒将推送到此群。',
-    `测试时间：${new Date().toISOString()}`,
+    `测试时间：${formatBeijingTime(new Date())}`,
   ].join('\n');
   return sendWecomText(text, settings);
 }

@@ -3,6 +3,7 @@ const TROY_OUNCE_GRAMS = 31.1034768;
 const USD_CNY_RATE = 6.7207;
 const JD_QUOTE_STALE_MS = 7000;
 const HOLDING_STORAGE_KEY = 'goldHoldingSettings';
+const APPEARANCE_STORAGE_KEY = 'jinmaiAppearance';
 
 const rangeLabels = {
   '15m': '15分钟',
@@ -36,6 +37,8 @@ const state = {
   chartPoints: [],
   chartMetrics: null,
   chartHoverIndex: -1,
+  alertEvents: [],
+  appearance: loadAppearanceSettings(),
 };
 
 const els = {
@@ -79,6 +82,29 @@ const els = {
   minimizeButton: document.getElementById('minimizeButton'),
   closeButton: document.getElementById('closeButton'),
 };
+
+function loadAppearanceSettings() {
+  return {
+    theme: 'system',
+    opacity: 92,
+    radius: 20,
+    collapsedDisplay: 'assets',
+    collapsedSize: 'normal',
+    animationEnabled: true,
+    desktopNotificationEnabled: true,
+  };
+}
+
+function applyAppearance(settings = {}) {
+  state.appearance = { ...state.appearance, ...settings };
+  document.documentElement.dataset.theme = state.appearance.theme;
+  document.documentElement.style.setProperty('--window-opacity', String(Number(state.appearance.opacity) / 100));
+  document.documentElement.style.setProperty('--window-radius', `${Number(state.appearance.radius)}px`);
+  document.body.classList.toggle('animations-paused', state.appearance.animationEnabled === false);
+  localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(state.appearance));
+  if (state.collapsed) void window.goldDesktop?.setCollapsedSize(state.appearance.collapsedSize);
+  renderCollapsedCard();
+}
 
 function loadHoldingSettings() {
   const modes = ['market', 'brand', 'recycle'];
@@ -210,6 +236,13 @@ function renderRollingNumber(element, value, digits = 2) {
   const text = formatNumber(number, digits);
   const currentText = element.dataset.rollingText;
   if (currentText === text) {
+    return;
+  }
+
+  if (state.appearance?.animationEnabled === false) {
+    element.textContent = text;
+    element.dataset.rollingText = text;
+    element.setAttribute('aria-label', text);
     return;
   }
 
@@ -495,14 +528,18 @@ function scheduleJdReconnect() {
 async function pollAlertEvents() {
   try {
     const events = await fetchJson(`/api/alerts/events?sinceId=${state.lastAlertEventId}`);
+    state.alertEvents = [...state.alertEvents, ...events].slice(-8);
     for (const event of events) {
       state.lastAlertEventId = Math.max(state.lastAlertEventId, event.id);
-      const notified = await window.goldDesktop?.notify('金价提醒', event.message);
+      const notified = state.appearance.desktopNotificationEnabled === false
+        ? true
+        : await window.goldDesktop?.notify('金价提醒', event.message);
       if (notified === false) {
         console.warn('系统通知不可用，金价提醒未弹出系统通知');
       }
     }
     localStorage.setItem('lastAlertEventId', String(state.lastAlertEventId));
+    renderCollapsedCard();
   } catch {
   }
 }
@@ -835,6 +872,16 @@ function renderCollapsedCard() {
       || state.latest?.fetchTime,
   );
   els.collapsedProfit.className = 'collapsed-profit';
+  const displayMode = state.appearance?.collapsedDisplay || 'price';
+  if (displayMode === 'price') {
+    els.collapsedProfit.textContent = '实时国内参考价';
+    return;
+  }
+  if (displayMode === 'alerts') {
+    const event = state.alertEvents[state.alertEvents.length - 1];
+    els.collapsedProfit.textContent = event ? `提醒：${event.message}` : '暂无提醒';
+    return;
+  }
   if (assets.length === 0) {
     els.collapsedProfit.textContent = '未设置资产';
     return;
@@ -1322,6 +1369,9 @@ els.toggleButton.addEventListener('click', async () => {
     if (typeof actualCollapsed === 'boolean') {
       state.collapsed = actualCollapsed;
       applyCollapsedState();
+      if (actualCollapsed) {
+        await window.goldDesktop?.setCollapsedSize(state.appearance.collapsedSize);
+      }
     }
   } catch {
     state.collapsed = !nextCollapsed;
@@ -1333,6 +1383,8 @@ els.toggleButton.addEventListener('click', async () => {
 els.minimizeButton.addEventListener('click', () => window.goldDesktop?.minimize());
 els.closeButton.addEventListener('click', () => window.goldDesktop?.close());
 els.settingsButton.addEventListener('click', () => window.goldDesktop?.openSettings());
+window.goldDesktop?.onWindowToggleCollapsed?.(() => toggleCollapsed());
+window.goldDesktop?.onAppearanceChanged?.((settings) => applyAppearance(settings));
 
 els.priceChart.addEventListener('mousemove', handleChartMove);
 els.priceChart.addEventListener('mouseleave', () => {
@@ -1342,6 +1394,7 @@ els.priceChart.addEventListener('mouseleave', () => {
 
 window.addEventListener('resize', drawChart);
 
+  applyAppearance(state.appearance);
   applyHoldingInputState();
   connectJdWebSocket();
   refreshAll();

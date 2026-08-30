@@ -113,6 +113,16 @@ export interface WecomSettings {
   lastError?: string;
 }
 
+export interface AppAppearanceSettings {
+  theme: 'system' | 'light' | 'dark';
+  opacity: number;
+  radius: number;
+  collapsedDisplay: 'price' | 'assets' | 'alerts';
+  collapsedSize: 'compact' | 'normal' | 'wide';
+  animationEnabled: boolean;
+  startupEnabled: boolean;
+}
+
 export interface CollectorStatus {
   running: boolean;
   symbol: string;

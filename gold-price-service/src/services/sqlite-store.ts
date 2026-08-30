@@ -450,16 +450,17 @@ export class SQLiteStore {
     return event;
   }
 
-  getAlertEvents(sinceId = 0, limit = 50): AlertEvent[] {
+  getAlertEvents(sinceId = 0, limit = 50, latest = false): AlertEvent[] {
     const rows = this.db.prepare(`
       SELECT *
       FROM alert_events
       WHERE id > ?
-      ORDER BY id ASC
+      ORDER BY id ${latest ? 'DESC' : 'ASC'}
       LIMIT ?
     `).all(sinceId, limit) as AlertEventRow[];
 
-    return rows.map((row) => this.mapAlertEvent(row));
+    const events = rows.map((row) => this.mapAlertEvent(row));
+    return latest ? events.reverse() : events;
   }
 
   getStats(): {

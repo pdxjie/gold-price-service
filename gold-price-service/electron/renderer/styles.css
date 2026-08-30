@@ -4,7 +4,9 @@
   --muted: #6e6e73;
   --subtle: #86868b;
   --line: rgba(60, 60, 67, 0.18);
-  --surface: rgba(248, 248, 250, 0.84);
+  --window-opacity: 0.92;
+  --window-radius: 20px;
+  --surface: rgba(248, 248, 250, var(--window-opacity));
   --surface-elevated: rgba(255, 255, 255, 0.74);
   --surface-strong: rgba(242, 242, 247, 0.9);
   --accent: #a86f14;
@@ -73,7 +75,7 @@ select:focus-visible,
   overflow-x: hidden;
   overflow-y: hidden;
   border: 1px solid rgba(60, 60, 67, 0.2);
-  border-radius: 20px;
+  border-radius: var(--window-radius);
   background: var(--surface);
   box-shadow: var(--shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.25);
@@ -1019,8 +1021,8 @@ select:focus-visible,
   gap: 6px;
   overflow: hidden;
   border: 1px solid rgba(60, 60, 67, 0.2);
-  border-radius: 16px;
-  background: rgba(248, 248, 250, 0.9);
+  border-radius: min(16px, var(--window-radius));
+  background: rgba(248, 248, 250, var(--window-opacity));
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.08);
   color: var(--ink);
   cursor: pointer;
@@ -1171,6 +1173,53 @@ body.collapsed .shell {
 
 body.collapsed .collapsed-card {
   display: flex;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #f5f5f7;
+  --muted: #a1a1a6;
+  --subtle: #8e8e93;
+  --line: rgba(235, 235, 245, 0.18);
+  --surface: rgba(28, 28, 30, var(--window-opacity));
+  --surface-elevated: rgba(44, 44, 46, 0.82);
+  --surface-strong: rgba(58, 58, 60, 0.9);
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .collapsed-card,
+html[data-theme="dark"] .amount-input,
+html[data-theme="dark"] .field input,
+html[data-theme="dark"] .field select,
+html[data-theme="dark"] .secondary-button {
+  background: rgba(44, 44, 46, var(--window-opacity));
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .rolling-digit,
+html[data-theme="dark"] .rolling-symbol {
+  color: var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"] {
+    color-scheme: dark;
+    --ink: #f5f5f7;
+    --muted: #a1a1a6;
+    --subtle: #8e8e93;
+    --line: rgba(235, 235, 245, 0.18);
+    --surface: rgba(28, 28, 30, var(--window-opacity));
+    --surface-elevated: rgba(44, 44, 46, 0.82);
+    --surface-strong: rgba(58, 58, 60, 0.9);
+    --shadow: 0 18px 48px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.24);
+  }
+}
+
+body.animations-paused *,
+body.animations-paused *::before,
+body.animations-paused *::after {
+  animation: none !important;
+  transition: none !important;
 }
 
 .toggle-control {

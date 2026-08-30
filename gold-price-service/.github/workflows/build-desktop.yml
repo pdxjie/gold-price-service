@@ -1,0 +1,61 @@
+name: Build Desktop Apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Windows packages
+        run: npm run pack
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: jinmai-windows-x64
+          path: release/*
+
+  build-macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: macos-13
+          - arch: arm64
+            runner: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build macOS packages
+        run: npm run build && npx electron-builder --mac dmg zip --${{ matrix.arch }}
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: jinmai-macos-${{ matrix.arch }}
+          path: release/*

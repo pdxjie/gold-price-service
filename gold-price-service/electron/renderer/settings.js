@@ -4,8 +4,13 @@ const els = {
   alertEnabled: document.getElementById('alertEnabled'),
   highAlertPriceInput: document.getElementById('highAlertPriceInput'),
   lowAlertPriceInput: document.getElementById('lowAlertPriceInput'),
+  alertCooldownSelect: document.getElementById('alertCooldownSelect'),
+  alertCooldownHint: document.getElementById('alertCooldownHint'),
   saveAlertButton: document.getElementById('saveAlertButton'),
   alertStatus: document.getElementById('alertStatus'),
+  testAlertButton: document.getElementById('testAlertButton'),
+  simulateAlertButton: document.getElementById('simulateAlertButton'),
+  alertHistory: document.getElementById('alertHistory'),
   minimizeButton: document.getElementById('settingsMinimizeButton'),
   closeButton: document.getElementById('settingsCloseButton'),
   feishuEnabled: document.getElementById('feishuEnabled'),
@@ -24,6 +29,11 @@ const els = {
   testWecomButton: document.getElementById('testWecomButton'),
   clearWecomButton: document.getElementById('clearWecomButton'),
   wecomStatus: document.getElementById('wecomStatus'),
+  exportJsonButton: document.getElementById('exportJsonButton'),
+  exportCsvButton: document.getElementById('exportCsvButton'),
+  exportXlsxButton: document.getElementById('exportXlsxButton'),
+  importDataButton: document.getElementById('importDataButton'),
+  backupStatus: document.getElementById('backupStatus'),
 };
 
 let feishuWebhookConfigured = false;
@@ -34,6 +44,34 @@ let clearWecomWebhook = false;
 
 function formatPrice(value) {
   return Number(value).toFixed(2);
+}
+
+function formatBeijingTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date).replaceAll('/', '-');
+}
+
+function updateCooldownHint() {
+  const descriptions = {
+    '0': '仅首次穿越提醒，价格回到正常区间后自动复位。',
+    '1800': '同一价格方向在 30 分钟内只提醒一次，期间再次穿越不会重复推送。',
+    '3600': '同一价格方向在 1 小时内只提醒一次，期间再次穿越不会重复推送。',
+    '86400': '同一价格方向在 1 天内只提醒一次，期间再次穿越不会重复推送。',
+  };
+  els.alertCooldownHint.textContent = descriptions[els.alertCooldownSelect.value] || descriptions['0'];
 }
 
 async function fetchJson(path, options = {}) {
@@ -49,13 +87,16 @@ async function fetchJson(path, options = {}) {
 }
 
 function renderRules(rules) {
-  const alertRules = (rules || []).filter((item) => item.symbol === 'AU9999');
+  const symbol = 'AU9999';
+  const alertRules = (rules || []).filter((item) => item.symbol === symbol);
   const highRule = alertRules.find((item) => item.direction === 'above');
   const lowRule = alertRules.find((item) => item.direction === 'below');
 
   els.alertEnabled.checked = alertRules.length === 0 || alertRules.some((item) => item.enabled);
   els.highAlertPriceInput.value = highRule ? formatPrice(highRule.targetPrice) : '';
   els.lowAlertPriceInput.value = lowRule ? formatPrice(lowRule.targetPrice) : '';
+  const selection = JSON.parse(localStorage.getItem('alertSelection') || '{}');
+  els.alertCooldownSelect.value = String(highRule?.cooldownSeconds ?? lowRule?.cooldownSeconds ?? selection.cooldownSeconds ?? 0);
 
   const status = [];
   if (highRule) status.push(`高价 ${formatPrice(highRule.targetPrice)} 元/克`);
@@ -68,6 +109,20 @@ async function loadRules() {
     renderRules(await fetchJson('/api/alerts/rules'));
   } catch (error) {
     els.alertStatus.textContent = error.message;
+  }
+}
+
+async function loadAlertHistory() {
+  try {
+    const events = await fetchJson('/api/alerts/events?limit=8&latest=true');
+    els.alertHistory.replaceChildren(...(events.length ? events.map((event) => {
+      const item = document.createElement('div');
+      item.className = 'alert-history-item';
+       item.innerHTML = `<strong>${event.message}</strong><small>${formatBeijingTime(event.triggeredAt)}</small>`;
+      return item;
+    }) : [Object.assign(document.createElement('span'), { className: 'empty-state', textContent: '暂无通知记录' })]));
+  } catch (error) {
+    els.alertHistory.textContent = error.message;
   }
 }
 
@@ -87,7 +142,7 @@ function renderFeishuSettings(settings) {
   els.feishuStatus.textContent = settings.lastError
     ? `上次发送失败：${settings.lastError}`
     : settings.lastSentAt
-      ? `上次发送：${settings.lastSentAt}`
+       ? `上次发送：${formatBeijingTime(settings.lastSentAt)}`
       : '尚未发送消息';
 }
 
@@ -174,7 +229,7 @@ function renderWecomSettings(settings) {
   els.wecomStatus.textContent = settings.lastError
     ? `上次发送失败：${settings.lastError}`
     : settings.lastSentAt
-      ? `上次发送：${settings.lastSentAt}`
+       ? `上次发送：${formatBeijingTime(settings.lastSentAt)}`
       : '尚未发送消息';
 }
 
@@ -257,7 +312,10 @@ async function saveAlertRules() {
       { direction: 'above', input: els.highAlertPriceInput, label: '高价' },
       { direction: 'below', input: els.lowAlertPriceInput, label: '低价' },
     ];
-    const currentRules = (await fetchJson('/api/alerts/rules')).filter((item) => item.symbol === 'AU9999');
+    const symbol = 'AU9999';
+    const cooldownSeconds = Number(els.alertCooldownSelect.value);
+    localStorage.setItem('alertSelection', JSON.stringify({ symbol, cooldownSeconds }));
+    const currentRules = (await fetchJson('/api/alerts/rules')).filter((item) => item.symbol === symbol);
     const requests = [];
 
     for (const threshold of thresholds) {
@@ -276,11 +334,11 @@ async function saveAlertRules() {
       }
 
       const body = JSON.stringify({
-        symbol: 'AU9999',
+        symbol,
         targetPrice,
         direction: threshold.direction,
         enabled: els.alertEnabled.checked,
-        cooldownSeconds: 0,
+        cooldownSeconds,
       });
       const path = currentRule ? `/api/alerts/rules/${currentRule.id}` : '/api/alerts/rules';
       requests.push(fetchJson(path, { method: currentRule ? 'PATCH' : 'POST', body }));
@@ -288,6 +346,7 @@ async function saveAlertRules() {
 
     await Promise.all(requests);
     await loadRules();
+    await loadAlertHistory();
     els.alertStatus.textContent = '提醒已保存';
   } catch (error) {
     els.alertStatus.textContent = error.message;
@@ -296,7 +355,83 @@ async function saveAlertRules() {
   }
 }
 
+function readAppearance() {
+  return {
+    theme: 'system',
+    collapsedDisplay: 'assets',
+    collapsedSize: 'normal',
+    radius: 20,
+    opacity: 92,
+    animationEnabled: true,
+    desktopNotificationEnabled: true,
+  };
+}
+
+async function exportData(format) {
+  els.backupStatus.textContent = '正在导出…';
+  try {
+    const rules = await fetchJson('/api/alerts/rules');
+    const holdings = JSON.parse(localStorage.getItem('goldHoldingSettings') || '{}');
+    const result = await window.goldDesktop?.exportData({ format, holdings, rules, appearance: readAppearance() });
+    els.backupStatus.textContent = result?.canceled ? '已取消导出' : `已导出：${result?.filePath || '完成'}`;
+  } catch (error) { els.backupStatus.textContent = `导出失败：${error.message}`; }
+}
+
+async function importData() {
+  els.backupStatus.textContent = '请选择备份文件…';
+  try {
+    const result = await window.goldDesktop?.importData();
+    if (!result || result.canceled) { els.backupStatus.textContent = '已取消导入'; return; }
+    if (result.data?.holdings) localStorage.setItem('goldHoldingSettings', JSON.stringify(result.data.holdings));
+    for (const rule of result.data?.rules || []) {
+      const body = { symbol: rule.symbol, targetPrice: Number(rule.targetPrice), direction: rule.direction, enabled: Boolean(rule.enabled), cooldownSeconds: Number(rule.cooldownSeconds) || 0 };
+      if (body.symbol && body.targetPrice > 0) await fetchJson('/api/alerts/rules', { method: 'POST', body: JSON.stringify(body) });
+    }
+    await loadRules(); await loadAlertHistory();
+    els.backupStatus.textContent = '导入完成，重新打开主窗口后资产设置生效';
+  } catch (error) { els.backupStatus.textContent = `导入失败：${error.message}`; }
+}
+
+async function testAlert() {
+  els.testAlertButton.disabled = true;
+  try {
+    const target = Number(els.highAlertPriceInput.value || els.lowAlertPriceInput.value || 980);
+    const direction = els.highAlertPriceInput.value ? 'above' : 'below';
+    const symbol = 'AU9999';
+    const result = await fetchJson('/api/alerts/test', { method: 'POST', body: JSON.stringify({ symbol, price: target, targetPrice: target, direction, message: `实时金价突破测试阈值 ${formatPrice(target)} 元/克` }) });
+    await window.goldDesktop?.notify('金脉提醒测试', result.message);
+    els.alertStatus.textContent = '测试提醒已发送';
+  } catch (error) { els.alertStatus.textContent = `测试失败：${error.message}`; }
+  finally { els.testAlertButton.disabled = false; }
+}
+
+async function simulateAlert() {
+  els.simulateAlertButton.disabled = true;
+  els.simulateAlertButton.textContent = '演示中…';
+  try {
+    const result = await fetchJson('/api/alerts/simulation/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        highTarget: Number(els.highAlertPriceInput.value),
+        lowTarget: Number(els.lowAlertPriceInput.value),
+      }),
+    });
+    els.alertStatus.textContent = `动态行情演示已开始，价格将临时波动 ${result.durationSeconds ?? 30} 秒`;
+    window.setTimeout(() => {
+      els.simulateAlertButton.disabled = false;
+      els.simulateAlertButton.textContent = '动态演示';
+    }, 31000);
+  } catch (error) {
+    els.alertStatus.textContent = `动态演示失败：${error.message}`;
+    els.simulateAlertButton.disabled = false;
+    els.simulateAlertButton.textContent = '动态演示';
+  }
+}
+
 els.saveAlertButton.addEventListener('click', saveAlertRules);
+els.alertCooldownSelect.addEventListener('change', updateCooldownHint);
+els.testAlertButton.addEventListener('click', testAlert);
+els.simulateAlertButton.addEventListener('click', simulateAlert);
 els.minimizeButton.addEventListener('click', () => window.goldDesktop?.minimize());
 els.closeButton.addEventListener('click', () => window.goldDesktop?.close());
 els.saveFeishuButton.addEventListener('click', saveFeishuSettings);
@@ -311,6 +446,12 @@ els.wecomWebhook.addEventListener('input', clearWecomPendingRemovalWhenTyping);
 document.querySelectorAll('.notification-tab').forEach((tab) => {
   tab.addEventListener('click', () => setNotificationTab(tab.dataset.notificationTab));
 });
+els.exportJsonButton.addEventListener('click', () => exportData('json'));
+els.exportCsvButton.addEventListener('click', () => exportData('csv'));
+els.exportXlsxButton.addEventListener('click', () => exportData('xlsx'));
+els.importDataButton.addEventListener('click', importData);
 loadRules();
+loadAlertHistory();
+updateCooldownHint();
 loadFeishuSettings();
 loadWecomSettings();
