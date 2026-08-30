@@ -11,6 +11,7 @@ const API_BASE = `http://localhost:${BACKEND_PORT}`;
 let mainWindow = null;
 let settingsWindow = null;
 let backendProcess = null;
+let backendStartedByUs = false;
 let tray = null;
 let isQuitting = false;
 const expandedWindowSize = [420, 850];
@@ -18,6 +19,24 @@ const collapsedWindowSize = [260, 124];
 const settingsWindowSize = [420, 1040];
 let windowCollapsed = false;
 const dragSessions = new Map();
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 
 const collapsedSizes = {
   compact: [236, 96],
@@ -155,9 +174,10 @@ async function ensureBackend() {
       RECYCLE_COLLECT_INTERVAL_MS: process.env.RECYCLE_COLLECT_INTERVAL_MS || '60000',
       ...(backend.runAsElectronNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
   });
+  backendStartedByUs = true;
 
   backendProcess.stdout.on('data', (chunk) => {
     console.log(`[backend] ${chunk.toString().trim()}`);
@@ -170,6 +190,7 @@ async function ensureBackend() {
   backendProcess.on('exit', (code) => {
     console.log(`[backend] exited with code ${code}`);
     backendProcess = null;
+    backendStartedByUs = false;
   });
 
   return waitForBackend();
@@ -260,6 +281,7 @@ function createSettingsWindow() {
   return settingsWindow;
 }
 
+if (hasSingleInstanceLock) {
 app.whenReady().then(async () => {
   if (app.isPackaged) {
     app.setLoginItemSettings({ openAtLogin: true, path: process.execPath });
@@ -284,6 +306,7 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send('window:toggle-collapsed');
   });
 });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -291,13 +314,54 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
+function stopOwnedBackend() {
+  if (!backendProcess || !backendStartedByUs) {
+    return Promise.resolve();
+  }
+
+  const child = backendProcess;
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      resolve();
+    };
+
+    child.once('exit', finish);
+    if (child.connected) {
+      child.send({ type: 'shutdown' }, (error) => {
+        if (error) {
+          child.kill('SIGTERM');
+        }
+      });
+    } else {
+      child.kill('SIGTERM');
+    }
+
+    setTimeout(() => {
+      if (!finished) {
+        child.kill();
+        finish();
+      }
+    }, 5000).unref();
+  });
+}
+
+app.on('before-quit', (event) => {
+  if (isQuitting) {
+    return;
+  }
+
   isQuitting = true;
   globalShortcut.unregisterAll();
   tray?.destroy();
   tray = null;
-  if (backendProcess) {
-    backendProcess.kill('SIGTERM');
+  if (backendProcess && backendStartedByUs) {
+    event.preventDefault();
+    void stopOwnedBackend().finally(() => app.quit());
   }
 });
 

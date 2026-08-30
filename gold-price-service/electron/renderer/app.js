@@ -22,6 +22,10 @@ const state = {
   jdReconnectTimer: null,
   historyIsDomestic: false,
   history: [],
+  historyError: null,
+  latestError: null,
+  recycleError: null,
+  collectorError: null,
   recycle: [],
   fullGold: null,
   collector: null,
@@ -30,6 +34,7 @@ const state = {
   collapsed: false,
   collapseInFlight: false,
   refreshInFlight: false,
+  refreshQueued: false,
   liveRefreshInFlight: false,
   fullGoldLoadedAt: 0,
   lastAlertEventId: Number(localStorage.getItem('lastAlertEventId') || 0),
@@ -340,6 +345,12 @@ async function fetchJson(path, options = {}) {
   return payload.data;
 }
 
+function fetchJsonWithTimeout(path, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetchJson(path, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function loadFullGoldData(force = false) {
   if (!force && state.fullGold && Date.now() - state.fullGoldLoadedAt < 30000) {
     return state.fullGold;
@@ -358,33 +369,53 @@ async function loadFullGoldData(force = false) {
 
 async function refreshAll() {
   if (state.refreshInFlight) {
+    state.refreshQueued = true;
     return;
   }
 
   state.refreshInFlight = true;
   try {
-    const [latest, history, recycle, collector] = await Promise.all([
-      fetchJson('/api/gold/latest?symbol=XAUUSD'),
-      fetchJson(`/api/jd-gold/history?range=${state.selectedRange}`),
-      fetchJson('/api/gold/recycle/latest'),
-      fetchJson('/api/collector/status'),
+    const results = await Promise.allSettled([
+      fetchJsonWithTimeout('/api/gold/latest?symbol=XAUUSD', 3000),
+      fetchJsonWithTimeout(`/api/jd-gold/history?range=${state.selectedRange}`, 8000),
+      fetchJsonWithTimeout('/api/gold/recycle/latest', 3000),
+      fetchJsonWithTimeout('/api/collector/status', 3000),
     ]);
 
-    state.latest = latest;
-    state.history = history?.data || [];
-    state.historyIsDomestic = history?.symbol === 'CZB-JCJ';
-    state.recycle = recycle || [];
-    state.collector = collector;
+    const [latestResult, historyResult, recycleResult, collectorResult] = results;
+    state.latestError = latestResult.status === 'rejected' ? latestResult.reason : null;
+    state.historyError = historyResult.status === 'rejected' ? historyResult.reason : null;
+    state.recycleError = recycleResult.status === 'rejected' ? recycleResult.reason : null;
+    state.collectorError = collectorResult.status === 'rejected' ? collectorResult.reason : null;
+
+    if (latestResult.status === 'fulfilled') {
+      state.latest = latestResult.value;
+    }
+    if (historyResult.status === 'fulfilled') {
+      state.history = historyResult.value?.data || [];
+      state.historyIsDomestic = historyResult.value?.symbol === 'CZB-JCJ';
+    }
+    if (recycleResult.status === 'fulfilled') {
+      state.recycle = recycleResult.value || [];
+    }
+    if (collectorResult.status === 'fulfilled') {
+      state.collector = collectorResult.value;
+    }
 
     await loadFullGoldData();
-    if (state.recycle.length === 0) {
+    if (state.recycle.length === 0 && !state.recycleError) {
       state.recycle = state.fullGold?.recycle || [];
     }
     render();
   } catch (error) {
-    els.collectorStatus.textContent = '连接失败';
+    state.historyError = error;
+    els.collectorStatus.textContent = '曲线连接失败';
   } finally {
     state.refreshInFlight = false;
+    if (state.refreshQueued) {
+      state.refreshQueued = false;
+      void refreshAll();
+    }
   }
 }
 
@@ -689,11 +720,14 @@ function renderLatest() {
       || fallbackQuote?.timestamp
       || state.latest?.fetchTime,
   );
-  els.collectorStatus.textContent = jdQuote
+  const dataStatus = jdQuote
     ? '实时更新'
     : fallbackQuote
       ? '备用更新'
       : state.collector?.running ? '5 秒采集' : '采集暂停';
+  els.collectorStatus.textContent = state.historyError
+    ? (state.history.length > 0 ? `${dataStatus} · 曲线暂时无法更新` : '曲线连接失败')
+    : dataStatus;
 
   const change = getRangeChange();
   const sign = change.value > 0 ? '+' : '';
@@ -1231,11 +1265,15 @@ function setHoldingMode(mode) {
 document.querySelectorAll('.range-tab').forEach((button) => {
   button.addEventListener('click', () => {
     state.selectedRange = button.dataset.range;
+    state.history = [];
+    state.historyError = null;
+    state.chartHoverIndex = -1;
     document.querySelectorAll('.range-tab').forEach((item) => {
       const selected = item === button;
       item.classList.toggle('active', selected);
       item.setAttribute('aria-selected', String(selected));
     });
+    drawChart();
     refreshAll();
   });
 });

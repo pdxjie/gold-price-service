@@ -17,6 +17,7 @@ const { DatabaseSync } = require('node:sqlite');
 type Database = InstanceType<typeof DatabaseSync>;
 
 interface PriceTickRow {
+  id: number;
   symbol: string;
   name: string;
   price: number;
@@ -35,6 +36,7 @@ interface PriceTickRow {
 }
 
 interface RecycleRow {
+  id: number;
   type: string;
   price: number;
   unit: string;
@@ -42,6 +44,7 @@ interface RecycleRow {
   purity: string | null;
   updated: string;
   updated_at: number;
+  fetch_time: string;
 }
 
 interface AlertRuleRow {
@@ -68,15 +71,34 @@ interface AlertEventRow {
   triggered_at: string;
 }
 
+interface AppSettingRow {
+  key: string;
+  value: string;
+  updated_at: string;
+}
+
+interface RecoveredDatabaseData {
+  priceTicks: PriceTickRow[];
+  recyclePrices: RecycleRow[];
+  alertRules: AlertRuleRow[];
+  alertEvents: AlertEventRow[];
+  appSettings: AppSettingRow[];
+}
+
 export class SQLiteStore {
   private db: Database;
+  private pendingRecoveryData?: RecoveredDatabaseData;
   readonly dbPath: string;
 
   constructor(dbPath = process.env.GOLD_DB_PATH || path.join(process.cwd(), 'data', 'gold-prices.sqlite')) {
     this.dbPath = dbPath;
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
-    this.db = new DatabaseSync(this.dbPath);
+    this.db = this.openDatabase();
     this.init();
+    if (this.pendingRecoveryData) {
+      this.restoreRecoveredData(this.pendingRecoveryData);
+      this.pendingRecoveryData = undefined;
+    }
   }
 
   savePriceTick(
@@ -494,9 +516,171 @@ export class SQLiteStore {
     this.db.close();
   }
 
+  private openDatabase(): Database {
+    const databaseFiles = [this.dbPath, `${this.dbPath}-wal`, `${this.dbPath}-shm`];
+    const hasExistingFiles = databaseFiles.some((filePath) => fs.existsSync(filePath));
+
+    if (!hasExistingFiles) {
+      return new DatabaseSync(this.dbPath);
+    }
+
+    let database: Database;
+    try {
+      database = new DatabaseSync(this.dbPath);
+    } catch (error) {
+      console.error('Open SQLite database error, rebuilding from backup:', error);
+      this.archiveDatabaseFiles();
+      return new DatabaseSync(this.dbPath);
+    }
+
+    if (this.isDatabaseHealthy(database)) {
+      return database;
+    }
+
+    console.error('SQLite integrity check failed, rebuilding database from backup');
+    this.pendingRecoveryData = this.readRecoverableData(database);
+    database.close();
+    this.archiveDatabaseFiles();
+    return new DatabaseSync(this.dbPath);
+  }
+
+  private isDatabaseHealthy(database: Database): boolean {
+    try {
+      const rows = database.prepare('PRAGMA integrity_check').all() as Array<Record<string, unknown>>;
+      return rows.length > 0 && rows.every((row) => Object.values(row)[0] === 'ok');
+    } catch (error) {
+      console.error('SQLite integrity check error:', error);
+      return false;
+    }
+  }
+
+  private readRecoverableData(database: Database): RecoveredDatabaseData {
+    const readRows = <T>(table: string): T[] => {
+      try {
+        return database.prepare(`SELECT * FROM ${table}`).all() as T[];
+      } catch (error) {
+        console.error(`Read recoverable SQLite table failed (${table}):`, error);
+        return [];
+      }
+    };
+
+    return {
+      priceTicks: readRows<PriceTickRow>('price_ticks'),
+      recyclePrices: readRows<RecycleRow>('recycle_prices'),
+      alertRules: readRows<AlertRuleRow>('alert_rules'),
+      alertEvents: readRows<AlertEventRow>('alert_events'),
+      appSettings: readRows<AppSettingRow>('app_settings'),
+    };
+  }
+
+  private archiveDatabaseFiles(): string | null {
+    const suffix = new Date().toISOString().replace(/[.:]/g, '-');
+    const backupBase = `${this.dbPath}.corrupt-${suffix}`;
+    const files = [
+      { source: this.dbPath, target: backupBase },
+      { source: `${this.dbPath}-wal`, target: `${backupBase}-wal` },
+      { source: `${this.dbPath}-shm`, target: `${backupBase}-shm` },
+    ];
+    let archived = false;
+
+    for (const file of files) {
+      if (!fs.existsSync(file.source)) {
+        continue;
+      }
+
+      try {
+        fs.renameSync(file.source, file.target);
+        archived = true;
+      } catch (error) {
+        console.error(`Archive SQLite file failed (${file.source}):`, error);
+      }
+    }
+
+    return archived ? backupBase : null;
+  }
+
+  private restoreRecoveredData(data: RecoveredDatabaseData): void {
+    try {
+      this.db.exec('BEGIN');
+
+      const insertPriceTick = this.db.prepare(`
+        INSERT OR IGNORE INTO price_ticks (
+          id, symbol, name, price, unit, change, change_percent, open, high, low,
+          pre_close, volume, quote_time, fetch_time, source, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of data.priceTicks) {
+        insertPriceTick.run(
+          row.id, row.symbol, row.name, row.price, row.unit, row.change, row.change_percent,
+          row.open, row.high, row.low, row.pre_close, row.volume, row.quote_time,
+          row.fetch_time, row.source, row.created_at,
+        );
+      }
+
+      const insertRecyclePrice = this.db.prepare(`
+        INSERT OR IGNORE INTO recycle_prices (
+          id, type, price, unit, formatted, purity, updated, updated_at, fetch_time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of data.recyclePrices) {
+        insertRecyclePrice.run(
+          row.id, row.type, row.price, row.unit, row.formatted, row.purity,
+          row.updated, row.updated_at, row.fetch_time,
+        );
+      }
+
+      const insertAlertRule = this.db.prepare(`
+        INSERT OR IGNORE INTO alert_rules (
+          id, symbol, target_price, direction, enabled, cooldown_seconds, triggered,
+          last_triggered_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of data.alertRules) {
+        insertAlertRule.run(
+          row.id, row.symbol, row.target_price, row.direction, row.enabled,
+          row.cooldown_seconds, row.triggered, row.last_triggered_at, row.created_at,
+          row.updated_at,
+        );
+      }
+
+      const insertAlertEvent = this.db.prepare(`
+        INSERT OR IGNORE INTO alert_events (
+          id, rule_id, symbol, price, target_price, direction, message, triggered_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of data.alertEvents) {
+        insertAlertEvent.run(
+          row.id, row.rule_id, row.symbol, row.price, row.target_price, row.direction,
+          row.message, row.triggered_at,
+        );
+      }
+
+      const insertAppSetting = this.db.prepare(`
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+      `);
+      for (const row of data.appSettings) {
+        insertAppSetting.run(row.key, row.value, row.updated_at);
+      }
+
+      this.db.exec('COMMIT');
+      console.log('SQLite recoverable data restored');
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('SQLite recovery rollback failed:', rollbackError);
+      }
+      console.error('SQLite recoverable data restore failed:', error);
+    }
+  }
+
   private init(): void {
     this.db.exec(`
-      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
+      PRAGMA foreign_keys = ON;
+      PRAGMA synchronous = FULL;
+      PRAGMA journal_mode = DELETE;
 
       CREATE TABLE IF NOT EXISTS price_ticks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

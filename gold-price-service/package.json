@@ -1,6 +1,6 @@
 {
   "name": "gold-price-service",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "本地金价数据采集服务",
   "main": "electron/main.js",
   "scripts": {

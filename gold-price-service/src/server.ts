@@ -9,6 +9,7 @@ import { jdGoldLiveService } from './services/jd-gold-live';
 import { goldWebSocketService, GoldWebSocketMessage } from './services/gold-websocket';
 import { priceCollector } from './services/price-collector';
 import { sqliteStore } from './services/sqlite-store';
+import { goldScraperService } from './services/gold-scraper';
 import akshareService from './services/akshare';
 import { sendFeishuTest } from './services/feishu-notifier';
 import { sendFeishuAlert } from './services/feishu-notifier';
@@ -92,6 +93,29 @@ app.get('/api/gold/latest', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get latest price error:', error);
+    if ((req.query.symbol as string || 'AU9999').toUpperCase() === 'XAUUSD') {
+      try {
+        const fallback = sqliteStore.getLatestPrice('XAUUSD');
+        if (fallback) {
+          res.json({
+            code: 200,
+            message: '国际行情暂不可用，已返回本地最近数据',
+            data: fallback,
+          });
+          return;
+        }
+      } catch (fallbackError) {
+        console.error('Get latest price fallback error:', fallbackError);
+      }
+
+      res.json({
+        code: 200,
+        message: '国际行情暂不可用',
+        data: null,
+      });
+      return;
+    }
+
     res.status(500).json({
       code: 500,
       message: error instanceof Error ? error.message : 'Internal server error',
@@ -214,22 +238,100 @@ app.get('/api/gold/history', (req: Request, res: Response) => {
 });
 
 let akshareBackfillPromise: Promise<void> = Promise.resolve();
+const AKSHARE_HISTORY_CACHE_MS = 5 * 60 * 1000;
+const akshareHistoryCache = new Map<string, {
+  loadedAt: number;
+  data: Awaited<ReturnType<typeof akshareService.getGoldHistory>>;
+}>();
+
+async function loadAkshareHistory(period: '1m' | '3m') {
+  const cached = akshareHistoryCache.get(period);
+  if (cached && Date.now() - cached.loadedAt < AKSHARE_HISTORY_CACHE_MS) {
+    return cached.data;
+  }
+
+  const data = await akshareService.getGoldHistory(period);
+  akshareHistoryCache.set(period, { loadedAt: Date.now(), data });
+  return data;
+}
+
+function getHistoryCutoffMs(range: string): number {
+  const durations: Record<string, number> = {
+    '15m': 15 * 60 * 1000,
+    '1h': 60 * 60 * 1000,
+    '1d': 24 * 60 * 60 * 1000,
+    '3d': 3 * 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+    '90d': 90 * 24 * 60 * 60 * 1000,
+    '3m': 90 * 24 * 60 * 60 * 1000,
+  };
+  return Date.now() - (durations[range] || durations['1h']);
+}
+
+function mapAkshareHistory(
+  history: Awaited<ReturnType<typeof akshareService.getGoldHistory>>,
+  range: string,
+) {
+  const cutoff = getHistoryCutoffMs(range);
+  return history.data
+    .map((point) => ({
+      timestamp: new Date(`${point.date}T08:00:00+08:00`).toISOString(),
+      price: point.price,
+      open: point.open,
+      high: point.high,
+      low: point.low,
+      close: point.close ?? point.price,
+    }))
+    .filter((point) => new Date(point.timestamp).getTime() >= cutoff);
+}
 
 app.get('/api/jd-gold/history', async (req: Request, res: Response) => {
   try {
-    await akshareBackfillPromise;
     const range = (req.query.range as string) || '1h';
     const symbol = 'CZB-JCJ';
-    let history = sqliteStore.getPriceHistory(symbol, range);
-    if (history.data.length < 2) {
-      const fallback = sqliteStore.getPriceHistory('AU9999', range);
-      if (fallback.data.length > history.data.length) {
-        history = { symbol, data: fallback.data };
+    let history = { symbol, data: [] as ReturnType<typeof sqliteStore.getPriceHistory>['data'] };
+    let databaseError: unknown;
+
+    try {
+      history = sqliteStore.getPriceHistory(symbol, range);
+      if (history.data.length < 2) {
+        const fallback = sqliteStore.getPriceHistory('AU9999', range);
+        if (fallback.data.length > history.data.length) {
+          history = { symbol, data: fallback.data };
+        }
+      }
+    } catch (error) {
+      databaseError = error;
+      console.error('Read JD gold history from database error:', error);
+    }
+
+    const isLongRange = range === '3m' || range === '90d';
+    if (isLongRange || history.data.length < 2) {
+      try {
+        const akshareHistory = await loadAkshareHistory(isLongRange ? '3m' : '1m');
+        const historicalData = mapAkshareHistory(akshareHistory, range);
+        if (isLongRange) {
+          history = {
+            symbol,
+            data: [...historicalData, ...history.data].sort((left, right) => (
+              new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime()
+            )),
+          };
+        } else if (historicalData.length > history.data.length) {
+          history = { symbol, data: historicalData };
+        }
+      } catch (fallbackError) {
+        console.error('Get AKShare history fallback error:', fallbackError);
+        if (history.data.length === 0 && databaseError) {
+          throw fallbackError;
+        }
       }
     }
+
     res.json({
       code: 200,
-      message: '获取成功',
+      message: databaseError ? '本地历史不可用，已返回历史行情' : '获取成功',
       data: history,
     });
   } catch (error) {
@@ -246,7 +348,7 @@ app.get('/api/jd-gold/history', async (req: Request, res: Response) => {
  * 获取最新回收价
  * GET /api/gold/recycle/latest
  */
-app.get('/api/gold/recycle/latest', (_req: Request, res: Response) => {
+app.get('/api/gold/recycle/latest', async (_req: Request, res: Response) => {
   try {
     const recycle = sqliteStore.getLatestRecyclePrices();
 
@@ -257,11 +359,22 @@ app.get('/api/gold/recycle/latest', (_req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get recycle price error:', error);
-    res.status(500).json({
-      code: 500,
-      message: error instanceof Error ? error.message : 'Internal server error',
-      data: null,
-    });
+    try {
+      const fallback = await goldScraperService.fetchRetailAndRecyclePrices();
+      res.json({
+        code: 200,
+        message: '数据库暂不可用，已实时解析回收价',
+        data: fallback.recycle,
+      });
+      return;
+    } catch (fallbackError) {
+      console.error('Get recycle price scraper fallback error:', fallbackError);
+      res.json({
+        code: 200,
+        message: '回收价暂不可用',
+        data: [],
+      });
+    }
   }
 });
 
@@ -965,16 +1078,31 @@ httpServer.listen(PORT, () => {
 });
 
 // 优雅关闭
+let shutdownStarted = false;
+
 const shutdown = (signal: string) => {
+  if (shutdownStarted) {
+    return;
+  }
+  shutdownStarted = true;
   console.log(`${signal} received, shutting down gracefully...`);
   priceCollector.stop();
   jdGoldLiveService.stop();
   bullionVaultLiveService.stop();
   goldWebSocketService.close();
-  httpServer.close();
-  sqliteStore.close();
-  process.exit(0);
+  const finish = () => {
+    sqliteStore.close();
+    process.exit(0);
+  };
+  httpServer.close(finish);
+  setTimeout(finish, 5000).unref();
 };
+
+process.on('message', (message: unknown) => {
+  if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'shutdown') {
+    shutdown('IPC');
+  }
+});
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
