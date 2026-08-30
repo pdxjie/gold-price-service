@@ -80,7 +80,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+          mapfile -d '' assets < <(find release-assets -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.zip' \) -print0)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo 'No desktop build assets were downloaded.'
+            find release-assets -maxdepth 3 -type f -print
+            exit 1
+          fi
+          if ! gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "金脉 ${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
+          gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --title "金脉 ${GITHUB_REF_NAME}" \
-            --generate-notes
+            --clobber
