@@ -13,11 +13,19 @@
         <span class="collapsed-live"><span class="collapsed-live-dot" aria-hidden="true"></span>积存金</span>
         <span id="collapsedUpdated">--</span>
       </div>
-      <div class="collapsed-price-line">
-        <strong id="collapsedPrice">--</strong>
-        <span>元/克</span>
+      <div class="collapsed-quotes" aria-label="实时积存金报价">
+        <div class="collapsed-quote-row">
+          <span>浙商</span>
+          <strong id="collapsedZhejiangPrice">--</strong>
+          <em>元/克</em>
+        </div>
+        <div class="collapsed-quote-row">
+          <span>民生</span>
+          <strong id="collapsedMinshengPrice">--</strong>
+          <em>元/克</em>
+        </div>
       </div>
-      <div id="collapsedProfit" class="collapsed-profit">未设置持仓</div>
+      <div id="collapsedProfit" class="collapsed-assets">未设置持仓</div>
     </div>
 
     <main class="shell">
@@ -40,17 +48,25 @@
 
       <section class="hero">
         <div>
-          <div class="price-line">
-            <span id="currentPrice" aria-live="polite">--</span>
-            <span class="unit">元/克</span>
-          </div>
-          <div id="changeText" class="change neutral">等待采集</div>
-          <div class="secondary-quotes" aria-live="polite">
-            <div class="secondary-quote">
-              <span>民生黄金</span>
-              <strong id="minshengPrice">--</strong>
-              <em>元/克</em>
+          <div class="deposit-quotes" aria-live="polite">
+            <div class="deposit-quote-card">
+              <span>浙商积存金</span>
+              <div class="deposit-price-line">
+                <strong id="currentPrice">--</strong>
+                <em>元/克</em>
+              </div>
+              <small id="changeText" class="change neutral">等待采集</small>
             </div>
+            <div class="deposit-quote-card">
+              <span>民生积存金</span>
+              <div class="deposit-price-line">
+                <strong id="minshengPrice">--</strong>
+                <em>元/克</em>
+              </div>
+              <small id="minshengChangeText" class="change neutral">等待采集</small>
+            </div>
+          </div>
+          <div class="secondary-quotes" aria-live="polite">
             <div class="secondary-quote exchange-quote">
               <span>美元兑人民币</span>
               <strong id="exchangeRate">--</strong>
@@ -85,6 +101,13 @@
               <input id="holdingBuyPrice" type="number" min="0" step="0.01" placeholder="980.00" inputmode="decimal" />
               <em>元/克</em>
             </div>
+          </label>
+          <label id="holdingMarketSourceField" class="field market-source-field">
+            <span>积存来源</span>
+            <select id="holdingMarketSource" aria-label="选择积存金来源">
+              <option value="CZB-JCJ">浙商积存金</option>
+              <option value="MS-JCJ">民生积存金</option>
+            </select>
           </label>
           <label id="holdingBrandField" class="field brand-field" hidden>
             <span>品牌</span>

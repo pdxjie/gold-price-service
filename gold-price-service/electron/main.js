@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Notification, screen, Tray, Menu, globalShortcut } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Notification, nativeImage, screen, Tray, Menu, globalShortcut } = require('electron');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -15,7 +15,7 @@ let backendStartedByUs = false;
 let tray = null;
 let isQuitting = false;
 const expandedWindowSize = [420, 850];
-const collapsedWindowSize = [260, 124];
+const collapsedWindowSize = [260, 136];
 const settingsWindowSize = [420, 1040];
 let windowCollapsed = false;
 let mainWindowFloatingEnabled = true;
@@ -41,9 +41,9 @@ if (!hasSingleInstanceLock) {
 }
 
 const collapsedSizes = {
-  compact: [236, 96],
-  normal: [260, 124],
-  wide: [320, 124],
+  compact: [236, 118],
+  normal: [260, 136],
+  wide: [320, 136],
 };
 
 function moveWindowFromDrag(session, pointerX, pointerY) {
@@ -274,7 +274,13 @@ function createWindow() {
 
 function createTray() {
   if (tray) return;
-  tray = new Tray(path.join(__dirname, 'renderer', 'icon-tray.png'));
+  const trayIcon = nativeImage
+    .createFromPath(path.join(__dirname, 'renderer', 'icon-tray.png'))
+    .resize({ width: process.platform === 'darwin' ? 16 : 20, height: process.platform === 'darwin' ? 16 : 20 });
+  if (process.platform === 'darwin') {
+    trayIcon.setTemplateImage(true);
+  }
+  tray = new Tray(trayIcon);
   tray.setToolTip('金脉');
   tray.on('click', () => {
     if (mainWindow?.isVisible()) mainWindow.hide();

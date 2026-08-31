@@ -48,13 +48,15 @@ const state = {
 
 const els = {
   collapsedCard: document.getElementById('collapsedBall'),
-  collapsedPrice: document.getElementById('collapsedPrice'),
+  collapsedZhejiangPrice: document.getElementById('collapsedZhejiangPrice'),
+  collapsedMinshengPrice: document.getElementById('collapsedMinshengPrice'),
   collapsedProfit: document.getElementById('collapsedProfit'),
   collapsedUpdated: document.getElementById('collapsedUpdated'),
   collapsedLiveDot: document.querySelector('.collapsed-live-dot'),
   currentPrice: document.getElementById('currentPrice'),
   changeText: document.getElementById('changeText'),
   minshengPrice: document.getElementById('minshengPrice'),
+  minshengChangeText: document.getElementById('minshengChangeText'),
   exchangeRate: document.getElementById('exchangeRate'),
   priceChart: document.getElementById('priceChart'),
   chartSection: document.querySelector('.chart-section'),
@@ -71,6 +73,8 @@ const els = {
   holdingForm: document.getElementById('holdingForm'),
   holdingGrams: document.getElementById('holdingGrams'),
   holdingBuyPrice: document.getElementById('holdingBuyPrice'),
+  holdingMarketSourceField: document.getElementById('holdingMarketSourceField'),
+  holdingMarketSource: document.getElementById('holdingMarketSource'),
   holdingBrandField: document.getElementById('holdingBrandField'),
   holdingBrand: document.getElementById('holdingBrand'),
   holdingQuoteNote: document.getElementById('holdingQuoteNote'),
@@ -118,6 +122,7 @@ function loadHoldingSettings() {
     mode,
     grams: values.grams || '',
     buyPrice: values.buyPrice || '',
+    quoteKey: values.quoteKey || (mode === 'market' ? 'CZB-JCJ' : ''),
     brandKey: values.brandKey || '',
   });
 
@@ -136,7 +141,7 @@ function loadHoldingSettings() {
     }
 
     modes.forEach((mode) => {
-      if (mode !== 'brand') {
+      if (mode === 'recycle') {
         holdings[mode] = holdings[mode].slice(0, 1);
       }
       if (holdings[mode].length === 0) {
@@ -192,6 +197,7 @@ function createHoldingAsset() {
     mode: state.holding.mode,
     grams: '',
     buyPrice: '',
+    quoteKey: state.holding.mode === 'market' ? 'CZB-JCJ' : '',
     brandKey: '',
   };
 }
@@ -440,6 +446,7 @@ async function refreshLiveQuote() {
 
 function renderRealtimeViews() {
   renderLiveStatus();
+  renderMarketSourceOptions();
   renderLatest();
   renderHolding();
   renderCollapsedCard();
@@ -577,6 +584,7 @@ async function pollAlertEvents() {
 
 function render() {
   renderLiveStatus();
+  renderMarketSourceOptions();
   renderBrandOptions();
   renderLatest();
   renderHolding();
@@ -593,13 +601,7 @@ function domesticPricePerGram(pricePerTroyOunce, exchangeRate = USD_CNY_RATE) {
   return price * rate / TROY_OUNCE_GRAMS;
 }
 
-function getCurrentDomesticPrice() {
-  const jdQuote = getFreshJdQuote();
-  const jdPrice = jdQuote?.zhejiangGold?.price;
-  if (Number.isFinite(Number(jdPrice))) {
-    return Number(jdPrice);
-  }
-
+function getDomesticFallbackPrice() {
   const liveQuote = getFreshBullionVaultQuote();
   const livePrice = liveQuote
     ? domesticPricePerGram(liveQuote.pricePerTroyOunce)
@@ -615,6 +617,67 @@ function getCurrentDomesticPrice() {
   return state.latest.symbol === 'XAUUSD'
     ? domesticPricePerGram(state.latest.price)
     : Number(state.latest.price);
+}
+
+function getDepositQuoteItems() {
+  const jdQuote = getFreshJdQuote();
+  return [
+    { key: 'CZB-JCJ', label: '浙商积存金', shortLabel: '浙商', instrument: jdQuote?.zhejiangGold },
+    { key: 'MS-JCJ', label: '民生积存金', shortLabel: '民生', instrument: jdQuote?.minshengGold },
+  ];
+}
+
+function getDepositQuoteItem(quoteKey = 'CZB-JCJ') {
+  return getDepositQuoteItems().find((item) => item.key === quoteKey) || getDepositQuoteItems()[0];
+}
+
+function getDepositQuoteLabel(quoteKey = 'CZB-JCJ', short = false) {
+  const item = getDepositQuoteItem(quoteKey);
+  return short ? item.shortLabel : item.label;
+}
+
+function getDepositQuotePrice(quoteKey = 'CZB-JCJ') {
+  const item = getDepositQuoteItem(quoteKey);
+  const price = Number(item?.instrument?.price);
+  if (Number.isFinite(price)) {
+    return price;
+  }
+
+  return quoteKey === 'CZB-JCJ' ? getDomesticFallbackPrice() : null;
+}
+
+function renderMarketSourceOptions() {
+  if (!els.holdingMarketSource) {
+    return;
+  }
+
+  const activeHolding = getActiveHolding('market');
+  if (activeHolding && !activeHolding.quoteKey) {
+    activeHolding.quoteKey = 'CZB-JCJ';
+    saveHoldingSettings();
+  }
+
+  const options = getDepositQuoteItems();
+  const getOptionLabel = (item) => {
+    const price = getDepositQuotePrice(item.key);
+    return `${item.label}${Number.isFinite(Number(price)) ? ` · ${formatNumber(price, 2)} 元/克` : ' · 等待报价'}`;
+  };
+  const currentSignature = [...els.holdingMarketSource.options].map((option) => `${option.value}:${option.textContent}`).join('|');
+  const nextSignature = options.map((item) => `${item.key}:${getOptionLabel(item)}`).join('|');
+  if (currentSignature !== nextSignature) {
+    els.holdingMarketSource.replaceChildren(...options.map((item) => {
+      const option = document.createElement('option');
+      option.value = item.key;
+      option.textContent = getOptionLabel(item);
+      return option;
+    }));
+  }
+
+  els.holdingMarketSource.value = activeHolding?.quoteKey || 'CZB-JCJ';
+}
+
+function getCurrentDomesticPrice() {
+  return getDepositQuotePrice('CZB-JCJ') ?? getDomesticFallbackPrice();
 }
 
 function getDisplayHistoryPrice(point) {
@@ -703,6 +766,22 @@ function renderLiveStatus() {
   els.collapsedLiveDot.className = `collapsed-live-dot ${connected ? 'connected' : stale ? 'stale' : 'offline'}`;
 }
 
+function getChangeView(changeValue, changePercent) {
+  const value = Number(changeValue);
+  const percent = Number(changePercent);
+  if (!Number.isFinite(value) && !Number.isFinite(percent)) {
+    return { text: '等待采集', className: 'change neutral' };
+  }
+
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const safePercent = Number.isFinite(percent) ? percent : 0;
+  const sign = safeValue > 0 ? '+' : '';
+  return {
+    text: `${sign}${formatNumber(safeValue, 2)} / ${sign}${formatNumber(safePercent, 2)}%`,
+    className: `change ${safeValue > 0 ? 'up' : safeValue < 0 ? 'down' : 'neutral'}`,
+  };
+}
+
 function renderLatest() {
   const jdQuote = getFreshJdQuote();
   const fallbackQuote = getFreshBullionVaultQuote();
@@ -712,7 +791,7 @@ function renderLatest() {
   }
 
   renderRollingNumber(els.currentPrice, current, 2);
-  renderRollingNumber(els.minshengPrice, jdQuote?.minshengGold?.price, 2);
+  renderRollingNumber(els.minshengPrice, getDepositQuotePrice('MS-JCJ'), 2);
   renderRollingNumber(els.exchangeRate, jdQuote?.exchangeRate?.price, 4);
   els.updatedAt.textContent = formatTime(
     jdQuote?.fetchedAt
@@ -730,9 +809,13 @@ function renderLatest() {
     : dataStatus;
 
   const change = getRangeChange();
-  const sign = change.value > 0 ? '+' : '';
-  els.changeText.textContent = `${sign}${formatNumber(change.value, 2)} / ${sign}${formatNumber(change.percent, 2)}%`;
-  els.changeText.className = `change ${change.value > 0 ? 'up' : change.value < 0 ? 'down' : 'neutral'}`;
+  const zhejiangChange = getChangeView(change.value, change.percent);
+  els.changeText.textContent = zhejiangChange.text;
+  els.changeText.className = zhejiangChange.className;
+
+  const minshengChange = getChangeView(jdQuote?.minshengGold?.change, jdQuote?.minshengGold?.changePercent);
+  els.minshengChangeText.textContent = minshengChange.text;
+  els.minshengChangeText.className = minshengChange.className;
 }
 
 function getHoldingQuote(holding = getActiveHolding()) {
@@ -744,7 +827,7 @@ function getHoldingQuote(holding = getActiveHolding()) {
   if (mode === 'recycle') {
     return getGoldRecyclePrice();
   }
-  return getCurrentDomesticPrice();
+  return getDepositQuotePrice(holding?.quoteKey || 'CZB-JCJ');
 }
 
 function getHoldingInputs(holding = getActiveHolding()) {
@@ -782,7 +865,7 @@ function getHoldingAssetLabel(holding, mode, index) {
     const brand = getBrandEntries().find((item) => getBrandKey(item) === holding.brandKey);
     return brand ? `${brand.brand} · ${brand.product}` : `品牌金 ${index + 1}`;
   }
-  return mode === 'recycle' ? '回收金' : '积存金';
+  return mode === 'recycle' ? '回收金' : getDepositQuoteLabel(holding?.quoteKey || 'CZB-JCJ');
 }
 
 function renderHoldingAssets(holdings, activeHolding, mode) {
@@ -839,31 +922,34 @@ function renderHolding() {
     }), { cost: 0, value: 0, profit: 0, saleValue: 0, saleProfit: 0, saleAvailable: false });
 
   renderHoldingAssets(holdings, activeHolding, mode);
-  els.addHoldingButton.hidden = mode !== 'brand';
-  els.holdingAssetCount.textContent = mode === 'brand' ? `当前 ${holdings.length} 项资产` : '单项资产';
+  els.addHoldingButton.hidden = mode === 'recycle';
+  els.holdingAssetCount.textContent = mode === 'recycle' ? '单项资产' : `当前 ${holdings.length} 项资产`;
 
   els.holdingModes.forEach((button) => {
     const selected = button.dataset.holdingMode === mode;
     button.classList.toggle('active', selected);
     button.setAttribute('aria-selected', String(selected));
   });
+  els.holdingMarketSourceField.hidden = mode !== 'market';
   els.holdingBrandField.hidden = mode !== 'brand';
   els.holdingSale.hidden = mode !== 'brand';
+  els.holdingForm.classList.toggle('market-mode', mode === 'market');
   els.holdingForm.classList.toggle('brand-mode', mode === 'brand');
   syncFieldValue(els.holdingGrams, activeHolding?.grams);
   syncFieldValue(els.holdingBuyPrice, activeHolding?.buyPrice);
+  syncFieldValue(els.holdingMarketSource, activeHolding?.quoteKey || 'CZB-JCJ');
   syncFieldValue(els.holdingBrand, activeHolding?.brandKey);
   els.holdingRecycleRate.textContent = recyclePrice === null ? '回收价 --' : `回收价 ${formatNumber(recyclePrice, 2)} 元/克`;
 
   const modeLabel = mode === 'brand' && selectedBrand
     ? `${selectedBrand.brand} ${selectedBrand.product}`
-    : mode === 'recycle' ? '回收参考价' : '积存金';
+    : mode === 'recycle' ? '回收参考价' : '按积存来源估值';
   els.holdingModeHint.textContent = modeLabel;
   els.holdingValueLabel.textContent = mode === 'recycle' ? '现在可卖' : '当前估值';
   els.holdingQuoteNote.textContent = mode === 'brand'
     ? selectedBrand ? `${selectedBrand.brand}当前报价 ${formatNumber(brandPrice, 2)} 元/克；回收价用于估算实际卖出` : '正在加载品牌价格'
     : mode === 'recycle' ? `当前黄金回收价 ${recyclePrice === null ? '--' : formatNumber(recyclePrice, 2)} 元/克`
-      : '填入克数和买入价后，实时计算持仓盈亏';
+      : '每条积存金资产可选择浙商或民生，并按对应实时价计算盈亏';
   els.holdingQuoteNote.classList.toggle('brand-note', mode === 'brand');
 
   if (calculations.length === 0) {
@@ -891,24 +977,25 @@ function renderHolding() {
 
 function renderCollapsedCard() {
   const current = getCurrentDomesticPrice();
-  const modeLabels = { market: '积存金', brand: '品牌', recycle: '回收金' };
+  const modeLabels = { brand: '品牌', recycle: '回收金' };
   const assets = ['market', 'brand', 'recycle'].flatMap((mode) => getHoldingList(mode).map((item, index) => ({
     mode,
     index,
     item,
     calculation: calculateHolding(item),
   }))).filter((entry) => entry.calculation);
-  renderRollingNumber(els.collapsedPrice, current, 2);
+  renderRollingNumber(els.collapsedZhejiangPrice, current, 2);
+  renderRollingNumber(els.collapsedMinshengPrice, getDepositQuotePrice('MS-JCJ'), 2);
   els.collapsedUpdated.textContent = formatTime(
     getFreshJdQuote()?.fetchedAt
       || getFreshJdQuote()?.zhejiangGold?.quoteTime
       || getFreshBullionVaultQuote()?.timestamp
       || state.latest?.fetchTime,
   );
-  els.collapsedProfit.className = 'collapsed-profit';
+  els.collapsedProfit.className = 'collapsed-assets';
   const displayMode = state.appearance?.collapsedDisplay || 'price';
   if (displayMode === 'price') {
-    els.collapsedProfit.textContent = '实时国内参考价';
+    els.collapsedProfit.textContent = '报价实时刷新';
     return;
   }
   if (displayMode === 'alerts') {
@@ -921,16 +1008,33 @@ function renderCollapsedCard() {
     return;
   }
 
-  els.collapsedProfit.replaceChildren(...assets.map(({ mode, index, item, calculation }) => {
+  const totalProfit = assets.reduce((total, entry) => total + entry.calculation.profit, 0);
+  const detailLimit = assets.length > 3 ? 2 : 3;
+  const summary = document.createElement('span');
+  summary.className = `collapsed-asset-summary ${totalProfit > 0 ? 'up' : totalProfit < 0 ? 'down' : 'neutral'}`;
+  summary.textContent = `${assets.length}项 ${formatProfit(totalProfit)}`;
+
+  const detailItems = assets.slice(0, detailLimit).map(({ mode, item, calculation }) => {
     const entry = document.createElement('span');
-    entry.className = `collapsed-profit-item ${calculation.profit > 0 ? 'up' : calculation.profit < 0 ? 'down' : 'neutral'}`;
+    entry.className = `collapsed-asset-item ${calculation.profit > 0 ? 'up' : calculation.profit < 0 ? 'down' : 'neutral'}`;
     const brand = mode === 'brand'
       ? getBrandEntries().find((candidate) => getBrandKey(candidate) === item.brandKey)
       : null;
-    const label = brand ? brand.brand : modeLabels[mode];
+    const label = mode === 'market'
+      ? getDepositQuoteLabel(item.quoteKey || 'CZB-JCJ', true)
+      : brand ? brand.brand : modeLabels[mode];
     entry.textContent = `${label} ${formatProfit(calculation.profit)}`;
     return entry;
-  }));
+  });
+
+  if (assets.length > detailLimit) {
+    const more = document.createElement('span');
+    more.className = 'collapsed-asset-more';
+    more.textContent = `+${assets.length - detailLimit}`;
+    detailItems.push(more);
+  }
+
+  els.collapsedProfit.replaceChildren(summary, ...detailItems);
 }
 
 function getRangeChange() {
@@ -1239,6 +1343,7 @@ function applyHoldingInputState() {
   const activeHolding = getActiveHolding();
   syncFieldValue(els.holdingGrams, activeHolding?.grams);
   syncFieldValue(els.holdingBuyPrice, activeHolding?.buyPrice);
+  renderMarketSourceOptions();
   renderBrandOptions();
   renderHolding();
   renderCollapsedCard();
@@ -1304,6 +1409,17 @@ els.holdingBuyPrice.addEventListener('input', () => {
   renderCollapsedCard();
 });
 
+els.holdingMarketSource.addEventListener('change', () => {
+  const activeHolding = getActiveHolding('market');
+  if (!activeHolding) {
+    return;
+  }
+  activeHolding.quoteKey = els.holdingMarketSource.value || 'CZB-JCJ';
+  saveHoldingSettings();
+  renderHolding();
+  renderCollapsedCard();
+});
+
 els.holdingBrand.addEventListener('change', () => {
   const activeHolding = getActiveHolding('brand');
   if (!activeHolding) {
@@ -1316,7 +1432,7 @@ els.holdingBrand.addEventListener('change', () => {
 });
 
 els.addHoldingButton.addEventListener('click', () => {
-  if (state.holding.mode !== 'brand') {
+  if (state.holding.mode === 'recycle') {
     return;
   }
   const asset = createHoldingAsset();

@@ -249,9 +249,9 @@ select:focus-visible,
 
 .hero {
   flex: 0 0 128px;
-  padding: 16px 18px 15px;
+  padding: 12px;
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   justify-content: space-between;
   min-height: 128px;
 }
@@ -306,16 +306,60 @@ select:focus-visible,
   gap: 7px;
 }
 
-#currentPrice {
+.deposit-quotes {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.deposit-quote-card {
+  min-width: 0;
+  padding: 10px;
+  display: grid;
+  align-content: space-between;
+  gap: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(60, 60, 67, 0.12);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+}
+
+.deposit-quote-card > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deposit-price-line {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.deposit-price-line strong {
   display: inline-flex;
   align-items: baseline;
   height: 1em;
+  min-width: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: 48px;
-  line-height: 0.98;
+  font-size: 31px;
+  line-height: 1;
   font-weight: 750;
   font-variant-numeric: tabular-nums;
+}
+
+.deposit-price-line em {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
 }
 
 .rolling-number {
@@ -367,10 +411,13 @@ select:focus-visible,
 
 .change {
   min-height: 18px;
-  margin-top: 8px;
+  display: block;
+  overflow: hidden;
   font-size: 12px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .change.up,
@@ -389,10 +436,11 @@ select:focus-visible,
 }
 
 .secondary-quotes {
-  margin-top: 12px;
+  margin-top: 8px;
   display: flex;
   align-items: center;
-  gap: 18px;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .secondary-quote {
@@ -659,6 +707,10 @@ select:focus-visible,
   grid-column: 1 / -1;
 }
 
+.market-source-field {
+  grid-column: 1 / -1;
+}
+
 .holding-form.brand-mode .brand-field {
   grid-column: 1 / -1;
   grid-template-columns: auto minmax(0, 1fr);
@@ -684,6 +736,10 @@ select:focus-visible,
 }
 
 .brand-field[hidden] {
+  display: none !important;
+}
+
+.market-source-field[hidden] {
   display: none !important;
 }
 
@@ -1012,13 +1068,13 @@ select:focus-visible,
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 13px 15px;
+  padding: 12px 14px;
   display: none;
   position: relative;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   overflow: hidden;
   border: 1px solid rgba(60, 60, 67, 0.2);
   border-radius: min(16px, var(--window-radius));
@@ -1069,7 +1125,7 @@ select:focus-visible,
 }
 
 .collapsed-card-head,
-.collapsed-price-line {
+.collapsed-quotes {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1099,50 +1155,71 @@ select:focus-visible,
   gap: 5px;
 }
 
-.collapsed-price-line {
-  width: 100%;
-  justify-content: flex-start;
-  align-items: baseline;
-  gap: 6px;
-}
-
 .collapsed-card-head,
-.collapsed-price-line,
-.collapsed-profit {
+.collapsed-quotes,
+.collapsed-assets {
   position: relative;
   z-index: 5;
   text-align: center;
   -webkit-app-region: no-drag;
 }
 
-.collapsed-price-line {
-  justify-content: center;
-}
-
-.collapsed-profit {
+.collapsed-quotes {
   width: 100%;
+  display: grid;
+  gap: 4px;
 }
 
-.collapsed-price-line strong {
-  color: var(--ink);
-  font-size: 27px;
-  line-height: 1;
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
+.collapsed-quote-row {
+  width: 100%;
+  min-width: 0;
+  height: 25px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 34px;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 7px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+  text-align: left;
 }
 
-.collapsed-price-line > span {
+.collapsed-quote-row span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
-.collapsed-profit {
-  max-height: 39px;
+.collapsed-quote-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 19px;
+  line-height: 1;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsed-quote-row em {
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.collapsed-assets {
+  width: 100%;
+  max-height: 43px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 2px 9px;
+  gap: 2px 7px;
   overflow: hidden;
   color: var(--muted);
   font-size: 10px;
@@ -1152,9 +1229,22 @@ select:focus-visible,
   text-overflow: ellipsis;
 }
 
-.collapsed-profit-item {
+.collapsed-asset-summary {
+  flex: 0 0 100%;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.collapsed-asset-item,
+.collapsed-asset-more {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+.collapsed-asset-more {
+  color: var(--muted);
 }
 
 .status-line.alert-triggered {
@@ -1164,7 +1254,7 @@ select:focus-visible,
 
 body.collapsed {
   width: 260px;
-  height: 124px;
+  height: 136px;
 }
 
 body.collapsed .shell {
