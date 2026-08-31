@@ -18,7 +18,9 @@ const expandedWindowSize = [420, 850];
 const collapsedWindowSize = [260, 124];
 const settingsWindowSize = [420, 1040];
 let windowCollapsed = false;
+let mainWindowFloatingEnabled = true;
 const dragSessions = new Map();
+const allWorkspaceWindows = new WeakSet();
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -90,6 +92,43 @@ function keepWindowVisible() {
 
   if (nextX !== bounds.x || nextY !== bounds.y) {
     mainWindow.setPosition(nextX, nextY, false);
+  }
+}
+
+function applyFloatingWindowBehavior(window) {
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  const level = process.platform === 'darwin' ? 'screen-saver' : 'floating';
+  window.setAlwaysOnTop(true, level);
+  window.setSkipTaskbar(true);
+
+  if (process.platform === 'darwin' && !allWorkspaceWindows.has(window)) {
+    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    allWorkspaceWindows.add(window);
+  }
+
+  if (window.isVisible()) {
+    window.moveTop();
+  }
+}
+
+function disableFloatingWindowBehavior(window) {
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  window.setAlwaysOnTop(false);
+  if (process.platform === 'darwin') {
+    window.setVisibleOnAllWorkspaces(false);
+    allWorkspaceWindows.delete(window);
+  }
+}
+
+function restoreMainWindowFloatingBehavior() {
+  if (mainWindowFloatingEnabled) {
+    applyFloatingWindowBehavior(mainWindow);
   }
 }
 
@@ -218,7 +257,11 @@ function createWindow() {
     },
   });
 
+  applyFloatingWindowBehavior(mainWindow);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.on('show', restoreMainWindowFloatingBehavior);
+  mainWindow.on('restore', restoreMainWindowFloatingBehavior);
+  mainWindow.on('blur', restoreMainWindowFloatingBehavior);
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -537,7 +580,12 @@ ipcMain.handle('data:import', async () => {
 });
 
 ipcMain.handle('window:set-always-on-top', (_event, enabled) => {
-  mainWindow?.setAlwaysOnTop(Boolean(enabled), 'floating');
+  mainWindowFloatingEnabled = Boolean(enabled);
+  if (mainWindowFloatingEnabled) {
+    applyFloatingWindowBehavior(mainWindow);
+  } else {
+    disableFloatingWindowBehavior(mainWindow);
+  }
   return mainWindow?.isAlwaysOnTop() || false;
 });
 
