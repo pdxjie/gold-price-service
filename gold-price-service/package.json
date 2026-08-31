@@ -13,6 +13,9 @@
     "pack:mac": "npm run build && electron-builder --mac dmg zip",
     "pack:mac:x64": "npm run build && electron-builder --mac dmg zip --x64",
     "pack:mac:arm64": "npm run build && electron-builder --mac dmg zip --arm64",
+    "pack:mac:adhoc": "npm run build && electron-builder --mac dmg zip -c.mac.identity=- -c.mac.hardenedRuntime=false",
+    "pack:mac:adhoc:x64": "npm run build && electron-builder --mac dmg zip --x64 -c.mac.identity=- -c.mac.hardenedRuntime=false",
+    "pack:mac:adhoc:arm64": "npm run build && electron-builder --mac dmg zip --arm64 -c.mac.identity=- -c.mac.hardenedRuntime=false",
     "pack": "npm run build && electron-builder --win nsis portable",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

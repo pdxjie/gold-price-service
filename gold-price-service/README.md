@@ -47,9 +47,22 @@ npm run pack:mac:x64     # Intel Mac
 npm run pack:mac:arm64  # Apple Silicon（M1/M2/M3/M4）
 ```
 
+如果当前机器或 GitHub Actions 没有 Apple Developer 证书，可以生成 ad-hoc 签名包：
+
+```bash
+npm run pack:mac:adhoc:x64
+npm run pack:mac:adhoc:arm64
+```
+
 也可以通过 GitHub Actions 自动构建 Windows、macOS Intel 和 macOS Apple Silicon。推送 `v1.0.1` 这类版本标签后，工作流会自动创建 GitHub Release 并上传全部安装包；在 Actions 页面手动运行工作流时只构建并上传构建产物，不创建 Release。
 
-macOS 构建当前未配置 Apple Developer 签名与公证，首次打开时可能需要在 Finder 中右键应用选择“打开”。正式面向大量用户发布时，建议在 GitHub Secrets 中加入 Developer ID、签名证书和公证凭据。
+GitHub Actions 的 macOS 包默认使用 ad-hoc 签名，能保证 `.app` 包内签名结构完整，但仍不是 Apple Developer ID 签名，也没有经过 Apple 公证。首次打开下载后的应用时，macOS 仍可能拦截；本地测试可以在复制到“应用程序”后执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/金脉.app
+```
+
+正式面向大量用户发布时，需要使用 Apple Developer ID 证书签名并完成 notarization 公证。通常需要在 GitHub Secrets 中加入签名证书和公证凭据，例如 `CSC_LINK`、`CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`。
 
 安装包会输出到 `release/` 目录。普通用户安装后不需要 Node.js，后端由 Electron 内置运行时启动；行情和提醒数据会保存到系统用户数据目录。
 

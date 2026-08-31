@@ -65,6 +65,14 @@ git push origin v1.0.1
 
 也可以在 GitHub 的 Actions 页面手动运行 `Build Desktop Apps`；手动运行只上传构建产物，不创建 Release。macOS 安装包包含 `.dmg` 和 `.zip` 两种格式。当前没有配置 Apple Developer 签名和公证，首次打开可能需要在 Finder 中右键应用并选择“打开”。
 
+GitHub Actions 的 macOS 包默认使用 ad-hoc 签名，能保证 `.app` 包内签名结构完整，但它仍不是 Apple Developer ID 签名，也没有经过 Apple 公证。下载后如果 macOS 仍提示“已损坏”或阻止打开，本地测试可以先把应用复制到“应用程序”，然后执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/金脉.app
+```
+
+正式对外分发要彻底消除 Gatekeeper 拦截，需要 Apple Developer ID 证书签名并完成 notarization 公证。
+
 ## 只启动后端
 
 ```bash

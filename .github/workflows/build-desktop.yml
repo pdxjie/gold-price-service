@@ -29,14 +29,14 @@ jobs:
               gold-price-service/release/*.blockmap
           - name: macOS Intel
             runner: macos-15-intel
-            command: npm run pack:mac:x64 -- --publish never
+            command: npm run pack:mac:adhoc:x64 -- --publish never
             artifact: macos-x64
             files: |
               gold-price-service/release/*.dmg
               gold-price-service/release/*.zip
           - name: macOS Apple Silicon
             runner: macos-15
-            command: npm run pack:mac:arm64 -- --publish never
+            command: npm run pack:mac:adhoc:arm64 -- --publish never
             artifact: macos-arm64
             files: |
               gold-price-service/release/*.dmg
