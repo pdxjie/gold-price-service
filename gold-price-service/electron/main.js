@@ -46,6 +46,17 @@ const collapsedSizes = {
   wide: [320, 136],
 };
 
+function getPlatformIconPath() {
+  return path.join(__dirname, 'renderer', process.platform === 'win32' ? 'icon.ico' : 'icon-tray.png');
+}
+
+function createTrayIcon() {
+  const iconSize = process.platform === 'darwin' ? 16 : 20;
+  return nativeImage
+    .createFromPath(getPlatformIconPath())
+    .resize({ width: iconSize, height: iconSize });
+}
+
 function moveWindowFromDrag(session, pointerX, pointerY) {
   if (!session || session.window.isDestroyed()) {
     return;
@@ -130,6 +141,19 @@ function restoreMainWindowFloatingBehavior() {
   if (mainWindowFloatingEnabled) {
     applyFloatingWindowBehavior(mainWindow);
   }
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  restoreMainWindowFloatingBehavior();
+  mainWindow.focus();
 }
 
 function healthCheck() {
@@ -239,8 +263,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: expandedWindowSize[0],
     height: expandedWindowSize[1],
-    minWidth: collapsedWindowSize[0],
-    minHeight: collapsedWindowSize[1],
+    minWidth: collapsedSizes.compact[0],
+    minHeight: collapsedSizes.compact[1],
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -249,6 +273,7 @@ function createWindow() {
     skipTaskbar: true,
     backgroundColor: '#00000000',
     title: '金脉',
+    ...(process.platform === 'win32' ? { icon: getPlatformIconPath() } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -274,20 +299,14 @@ function createWindow() {
 
 function createTray() {
   if (tray) return;
-  const trayIcon = nativeImage
-    .createFromPath(path.join(__dirname, 'renderer', 'icon-tray.png'))
-    .resize({ width: process.platform === 'darwin' ? 16 : 20, height: process.platform === 'darwin' ? 16 : 20 });
-  if (process.platform === 'darwin') {
-    trayIcon.setTemplateImage(true);
-  }
-  tray = new Tray(trayIcon);
+  tray = new Tray(createTrayIcon());
   tray.setToolTip('金脉');
   tray.on('click', () => {
     if (mainWindow?.isVisible()) mainWindow.hide();
-    else mainWindow?.show();
+    else showMainWindow();
   });
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '显示金脉', click: () => mainWindow?.show() },
+    { label: '显示金脉', click: () => showMainWindow() },
     { label: '打开设置', click: () => createSettingsWindow() },
     { type: 'separator' },
     { label: '退出', click: () => { isQuitting = true; app.quit(); } },
@@ -312,6 +331,7 @@ function createSettingsWindow() {
     skipTaskbar: true,
     backgroundColor: '#00000000',
     title: '金脉设置',
+    ...(process.platform === 'win32' ? { icon: getPlatformIconPath() } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

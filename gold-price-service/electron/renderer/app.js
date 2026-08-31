@@ -107,6 +107,7 @@ function loadAppearanceSettings() {
 function applyAppearance(settings = {}) {
   state.appearance = { ...state.appearance, ...settings };
   document.documentElement.dataset.theme = state.appearance.theme;
+  document.body.dataset.collapsedSize = state.appearance.collapsedSize || 'normal';
   document.documentElement.style.setProperty('--window-opacity', String(Number(state.appearance.opacity) / 100));
   document.documentElement.style.setProperty('--window-radius', `${Number(state.appearance.radius)}px`);
   document.body.classList.toggle('animations-paused', state.appearance.animationEnabled === false);
@@ -227,6 +228,41 @@ function formatProfit(value) {
   const number = Number(value);
   const sign = number > 0 ? '+' : '';
   return `${sign}${formatNumber(number, 2)} 元`;
+}
+
+function formatCompactGrams(value) {
+  const grams = Number(value);
+  if (!Number.isFinite(grams)) {
+    return '';
+  }
+
+  return `${formatNumber(grams, grams >= 10 ? 0 : 1)}克`;
+}
+
+function formatCompactProfit(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return '--';
+  }
+
+  if (Math.abs(number) >= 10000) {
+    return `${number > 0 ? '+' : ''}${formatNumber(number / 10000, 1)}万元`;
+  }
+
+  return `${number > 0 ? '+' : ''}${formatNumber(number, Math.abs(number) >= 100 ? 0 : 1)}元`;
+}
+
+function formatCollapsedTotalProfit(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return '--';
+  }
+
+  if (Math.abs(number) >= 10000) {
+    return formatCompactProfit(number);
+  }
+
+  return `${number > 0 ? '+' : ''}${formatNumber(number, 2)}元`;
 }
 
 function renderRollingNumber(element, value, digits = 2) {
@@ -975,15 +1011,63 @@ function renderHolding() {
   }
 }
 
-function renderCollapsedCard() {
-  const current = getCurrentDomesticPrice();
-  const modeLabels = { brand: '品牌', recycle: '回收金' };
-  const assets = ['market', 'brand', 'recycle'].flatMap((mode) => getHoldingList(mode).map((item, index) => ({
+function getCollapsedAssetDetailLimit() {
+  const size = state.appearance?.collapsedSize;
+  if (size === 'wide') {
+    return 4;
+  }
+  if (size === 'compact') {
+    return 2;
+  }
+  return 3;
+}
+
+function getCollapsedAssetLabel(entry) {
+  const { mode, item, index } = entry;
+  if (mode === 'market') {
+    return getDepositQuoteLabel(item.quoteKey || 'CZB-JCJ', true);
+  }
+
+  if (mode === 'brand') {
+    const brand = getBrandEntries().find((candidate) => getBrandKey(candidate) === item.brandKey);
+    return brand ? brand.brand : `品牌${index + 1}`;
+  }
+
+  return '回收';
+}
+
+function getCollapsedAssetEntries() {
+  return ['market', 'brand', 'recycle'].flatMap((mode, modeOrder) => getHoldingList(mode).map((item, index) => ({
     mode,
+    modeOrder,
     index,
     item,
     calculation: calculateHolding(item),
+    active: state.holding.activeIds?.[mode] === item.id,
   }))).filter((entry) => entry.calculation);
+}
+
+function getVisibleCollapsedAssets(assets) {
+  const limit = Math.min(getCollapsedAssetDetailLimit(), assets.length);
+  return [...assets]
+    .sort((left, right) => {
+      if (left.active !== right.active) {
+        return left.active ? -1 : 1;
+      }
+
+      const profitDistance = Math.abs(right.calculation.profit) - Math.abs(left.calculation.profit);
+      if (profitDistance !== 0) {
+        return profitDistance;
+      }
+
+      return left.modeOrder - right.modeOrder || left.index - right.index;
+    })
+    .slice(0, limit);
+}
+
+function renderCollapsedCard() {
+  const current = getCurrentDomesticPrice();
+  const assets = getCollapsedAssetEntries();
   renderRollingNumber(els.collapsedZhejiangPrice, current, 2);
   renderRollingNumber(els.collapsedMinshengPrice, getDepositQuotePrice('MS-JCJ'), 2);
   els.collapsedUpdated.textContent = formatTime(
@@ -1009,28 +1093,52 @@ function renderCollapsedCard() {
   }
 
   const totalProfit = assets.reduce((total, entry) => total + entry.calculation.profit, 0);
-  const detailLimit = assets.length > 3 ? 2 : 3;
-  const summary = document.createElement('span');
+  const visibleAssets = getVisibleCollapsedAssets(assets);
+  const summary = document.createElement('div');
   summary.className = `collapsed-asset-summary ${totalProfit > 0 ? 'up' : totalProfit < 0 ? 'down' : 'neutral'}`;
-  summary.textContent = `${assets.length}项 ${formatProfit(totalProfit)}`;
+  const summaryName = document.createElement('span');
+  summaryName.className = 'collapsed-summary-label';
+  summaryName.textContent = '合计';
+  const summaryValue = document.createElement('strong');
+  summaryValue.className = 'collapsed-summary-value';
+  summaryValue.textContent = formatCollapsedTotalProfit(totalProfit);
+  summary.title = `总盈亏 ${formatProfit(totalProfit)}`;
+  summary.append(summaryName, summaryValue);
 
-  const detailItems = assets.slice(0, detailLimit).map(({ mode, item, calculation }) => {
-    const entry = document.createElement('span');
-    entry.className = `collapsed-asset-item ${calculation.profit > 0 ? 'up' : calculation.profit < 0 ? 'down' : 'neutral'}`;
-    const brand = mode === 'brand'
-      ? getBrandEntries().find((candidate) => getBrandKey(candidate) === item.brandKey)
-      : null;
-    const label = mode === 'market'
-      ? getDepositQuoteLabel(item.quoteKey || 'CZB-JCJ', true)
-      : brand ? brand.brand : modeLabels[mode];
-    entry.textContent = `${label} ${formatProfit(calculation.profit)}`;
-    return entry;
+  const detailItems = visibleAssets.map((asset) => {
+    const { item, calculation } = asset;
+    const detail = document.createElement('div');
+    detail.className = `collapsed-asset-item ${calculation.profit > 0 ? 'up' : calculation.profit < 0 ? 'down' : 'neutral'}`;
+    const grams = Number(item.grams);
+    const label = getCollapsedAssetLabel(asset);
+    const gramsText = formatCompactGrams(grams);
+    const name = document.createElement('span');
+    name.className = 'collapsed-asset-name';
+    name.textContent = label;
+    const weight = document.createElement('span');
+    weight.className = 'collapsed-asset-grams';
+    weight.textContent = gramsText || '--';
+    const value = document.createElement('strong');
+    value.className = 'collapsed-asset-profit';
+    value.textContent = formatCompactProfit(calculation.profit);
+    detail.title = `${label} · ${Number.isFinite(grams) ? `${formatNumber(grams, 2)}克 · ` : ''}盈亏 ${formatProfit(calculation.profit)}`;
+    detail.append(name, weight, value);
+    return detail;
   });
 
-  if (assets.length > detailLimit) {
-    const more = document.createElement('span');
+  if (assets.length > visibleAssets.length) {
+    const more = document.createElement('div');
     more.className = 'collapsed-asset-more';
-    more.textContent = `+${assets.length - detailLimit}`;
+    const name = document.createElement('span');
+    name.className = 'collapsed-asset-name';
+    name.textContent = '其余';
+    const weight = document.createElement('span');
+    weight.className = 'collapsed-asset-grams';
+    weight.textContent = '';
+    const value = document.createElement('strong');
+    value.className = 'collapsed-asset-profit';
+    value.textContent = `+${assets.length - visibleAssets.length}项`;
+    more.append(name, weight, value);
     detailItems.push(more);
   }
 

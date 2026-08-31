@@ -22,7 +22,7 @@ jobs:
         include:
           - name: Windows x64
             runner: windows-2025
-            command: npm run pack:win -- --publish never
+            command: npm run pack:win:x64 -- --publish never
             artifact: windows-x64
             files: |
               gold-price-service/release/*.exe

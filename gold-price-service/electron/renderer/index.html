@@ -10,22 +10,24 @@
     <div id="collapsedBall" class="collapsed-card" role="button" tabindex="0" aria-label="展开金价详情" aria-live="polite">
       <div class="collapsed-drag-handle" title="按住拖动" aria-hidden="true"></div>
       <div class="collapsed-card-head">
-        <span class="collapsed-live"><span class="collapsed-live-dot" aria-hidden="true"></span>积存金</span>
+        <span class="collapsed-live"><span class="collapsed-live-dot" aria-hidden="true"></span>积存金 · 元/克</span>
         <span id="collapsedUpdated">--</span>
       </div>
-      <div class="collapsed-quotes" aria-label="实时积存金报价">
-        <div class="collapsed-quote-row">
-          <span>浙商</span>
-          <strong id="collapsedZhejiangPrice">--</strong>
-          <em>元/克</em>
+      <div class="collapsed-card-body">
+        <div class="collapsed-quotes" aria-label="实时积存金报价">
+          <div class="collapsed-quote-row">
+            <span>浙商</span>
+            <strong id="collapsedZhejiangPrice">--</strong>
+            <em>元/克</em>
+          </div>
+          <div class="collapsed-quote-row">
+            <span>民生</span>
+            <strong id="collapsedMinshengPrice">--</strong>
+            <em>元/克</em>
+          </div>
         </div>
-        <div class="collapsed-quote-row">
-          <span>民生</span>
-          <strong id="collapsedMinshengPrice">--</strong>
-          <em>元/克</em>
-        </div>
+        <div id="collapsedProfit" class="collapsed-assets">未设置持仓</div>
       </div>
-      <div id="collapsedProfit" class="collapsed-assets">未设置持仓</div>
     </div>
 
     <main class="shell">

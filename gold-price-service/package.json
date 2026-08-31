@@ -1,6 +1,6 @@
 {
   "name": "gold-price-service",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "description": "本地金价数据采集服务",
   "main": "electron/main.js",
   "scripts": {
@@ -8,15 +8,18 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "desktop": "electron electron/main.js",
-    "pack:win": "npm run build && electron-builder --win nsis",
-    "pack:portable": "npm run build && electron-builder --win portable",
+    "pack:win": "npm run build && electron-builder --win nsis --x64",
+    "pack:win:x64": "npm run build && electron-builder --win nsis --x64",
+    "pack:win:arm64": "npm run build && electron-builder --win nsis --arm64",
+    "pack:portable": "npm run build && electron-builder --win portable --x64",
+    "pack:portable:x64": "npm run build && electron-builder --win portable --x64",
     "pack:mac": "npm run build && electron-builder --mac dmg zip",
     "pack:mac:x64": "npm run build && electron-builder --mac dmg zip --x64",
     "pack:mac:arm64": "npm run build && electron-builder --mac dmg zip --arm64",
     "pack:mac:adhoc": "npm run build && electron-builder --mac dmg zip -c.mac.identity=- -c.mac.hardenedRuntime=false",
     "pack:mac:adhoc:x64": "npm run build && electron-builder --mac dmg zip --x64 -c.mac.identity=- -c.mac.hardenedRuntime=false",
     "pack:mac:adhoc:arm64": "npm run build && electron-builder --mac dmg zip --arm64 -c.mac.identity=- -c.mac.hardenedRuntime=false",
-    "pack": "npm run build && electron-builder --win nsis portable",
+    "pack": "npm run build && electron-builder --win nsis portable --x64",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "engines": {
@@ -67,7 +70,7 @@
       "output": "release"
     },
     "win": {
-      "icon": "electron/renderer/icon.svg",
+      "icon": "electron/renderer/icon.ico",
       "target": [
         {
           "target": "nsis",
