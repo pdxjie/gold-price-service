@@ -25,6 +25,11 @@
             <strong id="collapsedMinshengPrice">--</strong>
             <em>元/克</em>
           </div>
+          <div class="collapsed-quote-row">
+            <span>工行</span>
+            <strong id="collapsedIcbcPrice">--</strong>
+            <em>元/克</em>
+          </div>
         </div>
         <div id="collapsedProfit" class="collapsed-assets">未设置持仓</div>
       </div>
@@ -66,6 +71,14 @@
                 <em>元/克</em>
               </div>
               <small id="minshengChangeText" class="change neutral">等待采集</small>
+            </div>
+            <div class="deposit-quote-card">
+              <span>工行积存金</span>
+              <div class="deposit-price-line">
+                <strong id="icbcPrice">--</strong>
+                <em>元/克</em>
+              </div>
+              <small id="icbcChangeText" class="change neutral">等待采集</small>
             </div>
           </div>
           <div class="secondary-quotes" aria-live="polite">
@@ -109,6 +122,7 @@
             <select id="holdingMarketSource" aria-label="选择积存金来源">
               <option value="CZB-JCJ">浙商积存金</option>
               <option value="MS-JCJ">民生积存金</option>
+              <option value="ICBC-JCJ">工行积存金</option>
             </select>
           </label>
           <label id="holdingBrandField" class="field brand-field" hidden>
@@ -148,6 +162,7 @@
             <button class="range-tab active" type="button" role="tab" aria-selected="true" data-range="3m">3个月</button>
           </div>
         </div>
+        <div id="signalStrip" class="signal-strip" aria-live="polite"></div>
         <canvas id="priceChart" width="680" height="260" role="img" aria-label="金价走势，移动鼠标查看价格和时间"></canvas>
         <div id="chartTooltip" class="chart-tooltip" role="status" aria-live="polite" hidden></div>
       </section>

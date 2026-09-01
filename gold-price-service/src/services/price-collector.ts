@@ -196,12 +196,15 @@ function getAlertSymbolLabel(symbol: string): string {
     AU9999: '国内参考金价',
     'CZB-JCJ': '浙商积存金',
     'MS-JCJ': '民生积存金',
+    'ICBC-JCJ': '工行积存金',
     'AU9999-REDEEM': '国内参考赎回价',
     'CZB-JCJ-REDEEM': '浙商积存金赎回价',
     'MS-JCJ-REDEEM': '民生积存金赎回价',
+    'ICBC-JCJ-REDEEM': '工行积存金赎回价',
     'AU9999-RECYCLE': '黄金回收价',
     'CZB-JCJ-RECYCLE': '浙商积存金回收价',
     'MS-JCJ-RECYCLE': '民生积存金回收价',
+    'ICBC-JCJ-RECYCLE': '工行积存金回收价',
   };
   return `${labels[symbol] || symbol} `;
 }

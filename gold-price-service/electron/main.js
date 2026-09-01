@@ -14,7 +14,7 @@ let backendProcess = null;
 let backendStartedByUs = false;
 let tray = null;
 let isQuitting = false;
-const expandedWindowSize = [420, 850];
+const expandedWindowSize = [460, 850];
 const collapsedWindowSize = [260, 136];
 const settingsWindowSize = [420, 1040];
 let windowCollapsed = false;
@@ -41,9 +41,9 @@ if (!hasSingleInstanceLock) {
 }
 
 const collapsedSizes = {
-  compact: [236, 118],
-  normal: [260, 136],
-  wide: [320, 136],
+  compact: [236, 126],
+  normal: [270, 142],
+  wide: [328, 142],
 };
 
 function getPlatformIconPath() {

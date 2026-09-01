@@ -2,6 +2,7 @@ const apiBase = window.goldDesktop?.apiBase || 'http://localhost:3001';
 const TROY_OUNCE_GRAMS = 31.1034768;
 const USD_CNY_RATE = 6.7207;
 const JD_QUOTE_STALE_MS = 7000;
+const MARKET_SELL_FEE_RATE = 0.004;
 const HOLDING_STORAGE_KEY = 'goldHoldingSettings';
 const APPEARANCE_STORAGE_KEY = 'jinmaiAppearance';
 
@@ -23,6 +24,8 @@ const state = {
   historyIsDomestic: false,
   history: [],
   historyError: null,
+  shortSignals: null,
+  shortSignalsError: null,
   latestError: null,
   recycleError: null,
   collectorError: null,
@@ -50,6 +53,7 @@ const els = {
   collapsedCard: document.getElementById('collapsedBall'),
   collapsedZhejiangPrice: document.getElementById('collapsedZhejiangPrice'),
   collapsedMinshengPrice: document.getElementById('collapsedMinshengPrice'),
+  collapsedIcbcPrice: document.getElementById('collapsedIcbcPrice'),
   collapsedProfit: document.getElementById('collapsedProfit'),
   collapsedUpdated: document.getElementById('collapsedUpdated'),
   collapsedLiveDot: document.querySelector('.collapsed-live-dot'),
@@ -57,8 +61,11 @@ const els = {
   changeText: document.getElementById('changeText'),
   minshengPrice: document.getElementById('minshengPrice'),
   minshengChangeText: document.getElementById('minshengChangeText'),
+  icbcPrice: document.getElementById('icbcPrice'),
+  icbcChangeText: document.getElementById('icbcChangeText'),
   exchangeRate: document.getElementById('exchangeRate'),
   priceChart: document.getElementById('priceChart'),
+  signalStrip: document.getElementById('signalStrip'),
   chartSection: document.querySelector('.chart-section'),
   chartTooltip: document.getElementById('chartTooltip'),
   collectorStatus: document.getElementById('collectorStatus'),
@@ -420,13 +427,15 @@ async function refreshAll() {
     const results = await Promise.allSettled([
       fetchJsonWithTimeout('/api/gold/latest?symbol=XAUUSD', 3000),
       fetchJsonWithTimeout(`/api/jd-gold/history?range=${state.selectedRange}`, 8000),
+      fetchJsonWithTimeout('/api/jd-gold/signals?symbol=CZB-JCJ', 3000),
       fetchJsonWithTimeout('/api/gold/recycle/latest', 3000),
       fetchJsonWithTimeout('/api/collector/status', 3000),
     ]);
 
-    const [latestResult, historyResult, recycleResult, collectorResult] = results;
+    const [latestResult, historyResult, signalsResult, recycleResult, collectorResult] = results;
     state.latestError = latestResult.status === 'rejected' ? latestResult.reason : null;
     state.historyError = historyResult.status === 'rejected' ? historyResult.reason : null;
+    state.shortSignalsError = signalsResult.status === 'rejected' ? signalsResult.reason : null;
     state.recycleError = recycleResult.status === 'rejected' ? recycleResult.reason : null;
     state.collectorError = collectorResult.status === 'rejected' ? collectorResult.reason : null;
 
@@ -436,6 +445,9 @@ async function refreshAll() {
     if (historyResult.status === 'fulfilled') {
       state.history = historyResult.value?.data || [];
       state.historyIsDomestic = historyResult.value?.symbol === 'CZB-JCJ';
+    }
+    if (signalsResult.status === 'fulfilled') {
+      state.shortSignals = signalsResult.value || null;
     }
     if (recycleResult.status === 'fulfilled') {
       state.recycle = recycleResult.value || [];
@@ -624,6 +636,7 @@ function render() {
   renderBrandOptions();
   renderLatest();
   renderHolding();
+  renderShortSignals();
   renderCollapsedCard();
   drawChart();
 }
@@ -660,6 +673,7 @@ function getDepositQuoteItems() {
   return [
     { key: 'CZB-JCJ', label: '浙商积存金', shortLabel: '浙商', instrument: jdQuote?.zhejiangGold },
     { key: 'MS-JCJ', label: '民生积存金', shortLabel: '民生', instrument: jdQuote?.minshengGold },
+    { key: 'ICBC-JCJ', label: '工行积存金', shortLabel: '工行', instrument: jdQuote?.icbcGold },
   ];
 }
 
@@ -818,6 +832,72 @@ function getChangeView(changeValue, changePercent) {
   };
 }
 
+function getSignalClass(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number > 0 ? 'up' : number < 0 ? 'down' : 'neutral' : 'neutral';
+}
+
+function formatSignalChange(signal) {
+  if (!signal || !Number.isFinite(Number(signal.change))) {
+    return '--';
+  }
+
+  const change = Number(signal.change);
+  const percent = Number(signal.changePercent);
+  const sign = change > 0 ? '+' : '';
+  return `${sign}${formatNumber(change, 2)}${Number.isFinite(percent) ? ` ${sign}${formatNumber(percent, 2)}%` : ''}`;
+}
+
+function renderShortSignals() {
+  if (!els.signalStrip) {
+    return;
+  }
+
+  const signals = state.shortSignals;
+  if (!signals || state.shortSignalsError) {
+    els.signalStrip.replaceChildren(createSignalItem('短线', '等待样本'));
+    return;
+  }
+
+  const windowItems = (signals.windows || []).map((item) => createSignalItem(
+    item.label,
+    formatSignalChange(item),
+    getSignalClass(item.change),
+    `${item.label} 涨跌：${formatSignalChange(item)}，样本 ${item.points || 0} 个`,
+  ));
+  const volatilityValue = Number(signals.volatility?.value);
+  const trend = signals.consecutive || {};
+  const trendLabel = trend.direction === 'up'
+    ? `连涨 ${trend.count || 0}`
+    : trend.direction === 'down'
+      ? `连跌 ${trend.count || 0}`
+      : trend.direction === 'flat' ? '横盘' : '待采集';
+  const support = Number(signals.supportResistance?.support);
+  const resistance = Number(signals.supportResistance?.resistance);
+  const extraItems = [
+    createSignalItem('波动', Number.isFinite(volatilityValue) ? `${formatNumber(volatilityValue, 3)}%` : '--'),
+    createSignalItem('趋势', trendLabel, trend.direction === 'up' ? 'up' : trend.direction === 'down' ? 'down' : 'neutral'),
+    createSignalItem('支撑', Number.isFinite(support) ? formatNumber(support, 2) : '--'),
+    createSignalItem('压力', Number.isFinite(resistance) ? formatNumber(resistance, 2) : '--'),
+  ];
+
+  els.signalStrip.replaceChildren(...windowItems, ...extraItems);
+}
+
+function createSignalItem(label, value, tone = 'neutral', title = '') {
+  const item = document.createElement('div');
+  item.className = `signal-item ${tone}`;
+  if (title) {
+    item.title = title;
+  }
+  const name = document.createElement('span');
+  name.textContent = label;
+  const text = document.createElement('strong');
+  text.textContent = value;
+  item.append(name, text);
+  return item;
+}
+
 function renderLatest() {
   const jdQuote = getFreshJdQuote();
   const fallbackQuote = getFreshBullionVaultQuote();
@@ -828,6 +908,7 @@ function renderLatest() {
 
   renderRollingNumber(els.currentPrice, current, 2);
   renderRollingNumber(els.minshengPrice, getDepositQuotePrice('MS-JCJ'), 2);
+  renderRollingNumber(els.icbcPrice, getDepositQuotePrice('ICBC-JCJ'), 2);
   renderRollingNumber(els.exchangeRate, jdQuote?.exchangeRate?.price, 4);
   els.updatedAt.textContent = formatTime(
     jdQuote?.fetchedAt
@@ -852,6 +933,10 @@ function renderLatest() {
   const minshengChange = getChangeView(jdQuote?.minshengGold?.change, jdQuote?.minshengGold?.changePercent);
   els.minshengChangeText.textContent = minshengChange.text;
   els.minshengChangeText.className = minshengChange.className;
+
+  const icbcChange = getChangeView(jdQuote?.icbcGold?.change, jdQuote?.icbcGold?.changePercent);
+  els.icbcChangeText.textContent = icbcChange.text;
+  els.icbcChangeText.className = icbcChange.className;
 }
 
 function getHoldingQuote(holding = getActiveHolding()) {
@@ -886,12 +971,16 @@ function calculateHolding(holding = getActiveHolding()) {
   const cost = inputs.grams * inputs.buyPrice;
   const value = inputs.grams * Number(quote);
   const recyclePrice = getGoldRecyclePrice();
-  const saleValue = recyclePrice === null ? null : inputs.grams * recyclePrice;
+  const mode = holding?.mode || state.holding.mode;
+  const marketSaleValue = mode === 'market' ? value * (1 - MARKET_SELL_FEE_RATE) : null;
+  const recycleSaleValue = mode === 'brand' && recyclePrice !== null ? inputs.grams * recyclePrice : null;
+  const saleValue = marketSaleValue ?? recycleSaleValue;
   return {
     cost,
     value,
     profit: value - cost,
     saleValue,
+    saleFeeRate: mode === 'market' ? MARKET_SELL_FEE_RATE : 0,
     saleProfit: saleValue === null ? null : saleValue - cost,
   };
 }
@@ -968,7 +1057,7 @@ function renderHolding() {
   });
   els.holdingMarketSourceField.hidden = mode !== 'market';
   els.holdingBrandField.hidden = mode !== 'brand';
-  els.holdingSale.hidden = mode !== 'brand';
+  els.holdingSale.hidden = mode === 'recycle';
   els.holdingForm.classList.toggle('market-mode', mode === 'market');
   els.holdingForm.classList.toggle('brand-mode', mode === 'brand');
   syncFieldValue(els.holdingGrams, activeHolding?.grams);
@@ -985,7 +1074,7 @@ function renderHolding() {
   els.holdingQuoteNote.textContent = mode === 'brand'
     ? selectedBrand ? `${selectedBrand.brand}当前报价 ${formatNumber(brandPrice, 2)} 元/克；回收价用于估算实际卖出` : '正在加载品牌价格'
     : mode === 'recycle' ? `当前黄金回收价 ${recyclePrice === null ? '--' : formatNumber(recyclePrice, 2)} 元/克`
-      : '每条积存金资产可选择浙商或民生，并按对应实时价计算盈亏';
+      : '每条积存金资产可选择浙商、民生或工行，并按对应实时价计算盈亏';
   els.holdingQuoteNote.classList.toggle('brand-note', mode === 'brand');
 
   if (calculations.length === 0) {
@@ -993,8 +1082,8 @@ function renderHolding() {
     els.holdingCost.textContent = '--';
     els.holdingProfit.textContent = '--';
     els.holdingProfit.className = '';
-    els.holdingSaleValue.textContent = '可卖 --';
-    els.holdingSaleProfit.textContent = '卖出盈亏 --';
+    els.holdingSaleValue.textContent = mode === 'market' ? '实收 --' : '可卖 --';
+    els.holdingSaleProfit.textContent = mode === 'market' ? '扣费盈亏 --' : '卖出盈亏 --';
     els.holdingSaleProfit.className = '';
     return;
   }
@@ -1004,9 +1093,12 @@ function renderHolding() {
   els.holdingProfit.textContent = formatProfit(totals.profit);
   els.holdingProfit.className = totals.profit > 0 ? 'up' : totals.profit < 0 ? 'down' : 'neutral';
 
-  if (totals.saleAvailable && mode === 'brand') {
-    els.holdingSaleValue.textContent = `可卖 ${formatMoney(totals.saleValue)}`;
-    els.holdingSaleProfit.textContent = `卖出盈亏 ${formatProfit(totals.saleProfit)}`;
+  if (totals.saleAvailable && mode !== 'recycle') {
+    els.holdingRecycleRate.textContent = mode === 'market'
+      ? `卖出扣费 ${formatNumber(MARKET_SELL_FEE_RATE * 100, 2)}%`
+      : recyclePrice === null ? '回收价 --' : `回收价 ${formatNumber(recyclePrice, 2)} 元/克`;
+    els.holdingSaleValue.textContent = `${mode === 'market' ? '实收' : '可卖'} ${formatMoney(totals.saleValue)}`;
+    els.holdingSaleProfit.textContent = `${mode === 'market' ? '扣费盈亏' : '卖出盈亏'} ${formatProfit(totals.saleProfit)}`;
     els.holdingSaleProfit.className = totals.saleProfit > 0 ? 'up' : totals.saleProfit < 0 ? 'down' : 'neutral';
   }
 }
@@ -1070,6 +1162,7 @@ function renderCollapsedCard() {
   const assets = getCollapsedAssetEntries();
   renderRollingNumber(els.collapsedZhejiangPrice, current, 2);
   renderRollingNumber(els.collapsedMinshengPrice, getDepositQuotePrice('MS-JCJ'), 2);
+  renderRollingNumber(els.collapsedIcbcPrice, getDepositQuotePrice('ICBC-JCJ'), 2);
   els.collapsedUpdated.textContent = formatTime(
     getFreshJdQuote()?.fetchedAt
       || getFreshJdQuote()?.zhejiangGold?.quoteTime

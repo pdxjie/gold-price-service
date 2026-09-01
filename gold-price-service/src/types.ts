@@ -72,6 +72,49 @@ export interface PriceHistory {
   }>;
 }
 
+export interface ShortTermWindowSignal {
+  label: string;
+  minutes: number;
+  points: number;
+  startPrice?: number;
+  endPrice?: number;
+  change?: number;
+  changePercent?: number;
+}
+
+export interface ShortTermSignals {
+  symbol: string;
+  generatedAt: string;
+  latestPrice?: number;
+  latestTime?: string;
+  windows: ShortTermWindowSignal[];
+  volatility: {
+    label: string;
+    minutes: number;
+    value?: number;
+    points: number;
+  };
+  consecutive: {
+    direction: 'up' | 'down' | 'flat' | 'unknown';
+    count: number;
+    change?: number;
+  };
+  supportResistance: {
+    minutes: number;
+    support?: number;
+    resistance?: number;
+    midpoint?: number;
+  };
+  fee: {
+    sellFeeRate: number;
+  };
+  dataQuality: {
+    points: number;
+    insufficient: boolean;
+    message: string;
+  };
+}
+
 export type AlertDirection = 'below' | 'above';
 
 export interface AlertRule {

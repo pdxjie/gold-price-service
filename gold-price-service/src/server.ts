@@ -15,6 +15,7 @@ import { sendFeishuTest } from './services/feishu-notifier';
 import { sendFeishuAlert } from './services/feishu-notifier';
 import { sendWecomTest } from './services/wecom-notifier';
 import { sendWecomAlert } from './services/wecom-notifier';
+import { shortTermSignalService } from './services/short-term-signals';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -289,13 +290,13 @@ function mapAkshareHistory(
 app.get('/api/jd-gold/history', async (req: Request, res: Response) => {
   try {
     const range = (req.query.range as string) || '1h';
-    const symbol = 'CZB-JCJ';
+    const symbol = ((req.query.symbol as string) || 'CZB-JCJ').toUpperCase();
     let history = { symbol, data: [] as ReturnType<typeof sqliteStore.getPriceHistory>['data'] };
     let databaseError: unknown;
 
     try {
       history = sqliteStore.getPriceHistory(symbol, range);
-      if (history.data.length < 2) {
+      if (symbol === 'CZB-JCJ' && history.data.length < 2) {
         const fallback = sqliteStore.getPriceHistory('AU9999', range);
         if (fallback.data.length > history.data.length) {
           history = { symbol, data: fallback.data };
@@ -307,7 +308,7 @@ app.get('/api/jd-gold/history', async (req: Request, res: Response) => {
     }
 
     const isLongRange = range === '3m' || range === '90d';
-    if (isLongRange || history.data.length < 2) {
+    if (symbol === 'CZB-JCJ' && (isLongRange || history.data.length < 2)) {
       try {
         const akshareHistory = await loadAkshareHistory(isLongRange ? '3m' : '1m');
         const historicalData = mapAkshareHistory(akshareHistory, range);
@@ -336,6 +337,24 @@ app.get('/api/jd-gold/history', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get JD gold history error:', error);
+    res.status(500).json({
+      code: 500,
+      message: error instanceof Error ? error.message : 'Internal server error',
+      data: null,
+    });
+  }
+});
+
+app.get('/api/jd-gold/signals', (req: Request, res: Response) => {
+  try {
+    const symbol = ((req.query.symbol as string) || 'CZB-JCJ').toUpperCase();
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: shortTermSignalService.getSignals(symbol),
+    });
+  } catch (error) {
+    console.error('Get JD gold signals error:', error);
     res.status(500).json({
       code: 500,
       message: error instanceof Error ? error.message : 'Internal server error',
@@ -976,6 +995,7 @@ jdGoldLiveService.addListener((quote) => {
   const instruments = [
     { symbol: 'CZB-JCJ', instrument: quote.zhejiangGold },
     ...(quote.minshengGold ? [{ symbol: 'MS-JCJ', instrument: quote.minshengGold }] : []),
+    ...(quote.icbcGold ? [{ symbol: 'ICBC-JCJ', instrument: quote.icbcGold }] : []),
   ];
   for (const { symbol, instrument } of instruments) {
     if (lastJdPrices.get(symbol) === instrument.price) {

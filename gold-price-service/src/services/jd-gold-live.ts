@@ -5,8 +5,10 @@ const JD_LOCAL_TIME_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_SIMPLE_QUOTE_URL = 'https://ms.jr.jd.com/gw2/generic/jdtwt/h5/m/getSimpleQuoteUseUniqueCodes';
 const DEFAULT_ZHEJIANG_GOLD_URL = 'https://api.jdjygold.com/gw2/generic/produTools/h5/m/getGoldPrice';
 const DEFAULT_MINSHENG_GOLD_URL = 'https://ms.jr.jd.com/gw2/generic/CreatorSer/newh5/m/getFirstRelatedProductInfo';
+const DEFAULT_ICBC_GOLD_URL = 'https://api.jdjygold.com/gw2/generic/jrm/h5/m/icbcLatestPrice';
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_STALE_AFTER_MS = 5000;
+const ICBC_GOLD_SKU = '2005453243';
 
 export interface JdMarketInstrument {
   uniqueCode: string;
@@ -28,6 +30,7 @@ export interface JdGoldLiveQuote {
   fetchedAtMs: number;
   zhejiangGold: JdMarketInstrument;
   minshengGold?: JdMarketInstrument;
+  icbcGold?: JdMarketInstrument;
   exchangeRate: JdMarketInstrument;
   londonGold?: JdMarketInstrument;
   goldTd?: JdMarketInstrument;
@@ -42,6 +45,7 @@ export interface JdGoldLiveStatus {
   simpleQuoteUrl: string;
   zhejiangGoldUrl: string;
   minshengGoldUrl: string;
+  icbcGoldUrl: string;
   lastSuccessAt?: string;
   lastQuoteTime?: string;
   pollCount: number;
@@ -95,12 +99,35 @@ type MinshengGoldResponse = {
   success?: boolean;
 };
 
+type BankGoldQuotePayload = {
+  productSku?: unknown;
+  goldCode?: unknown;
+  productName?: unknown;
+  goldName?: unknown;
+  name?: unknown;
+  price?: unknown;
+  yesterdayPrice?: unknown;
+  upAndDownAmt?: unknown;
+  upAndDownRate?: unknown;
+  time?: unknown;
+};
+
+type BankGoldQuoteResponse = {
+  resultData?: {
+    data?: BankGoldQuotePayload;
+    datas?: BankGoldQuotePayload;
+    success?: boolean;
+  };
+  success?: boolean;
+};
+
 type QuoteListener = (quote: JdGoldLiveQuote) => void;
 
 export class JdGoldLiveService {
   private readonly simpleQuoteUrl = process.env.JD_SIMPLE_QUOTE_URL || DEFAULT_SIMPLE_QUOTE_URL;
   private readonly zhejiangGoldUrl = process.env.JD_ZHEJIANG_GOLD_URL || DEFAULT_ZHEJIANG_GOLD_URL;
   private readonly minshengGoldUrl = process.env.JD_MINSHENG_GOLD_URL || DEFAULT_MINSHENG_GOLD_URL;
+  private readonly icbcGoldUrl = process.env.JD_ICBC_GOLD_URL || DEFAULT_ICBC_GOLD_URL;
   private readonly pollIntervalMs = this.readPositiveNumber('JD_GOLD_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS);
   private readonly staleAfterMs = this.readPositiveNumber(
     'JD_GOLD_STALE_AFTER_MS',
@@ -187,6 +214,7 @@ export class JdGoldLiveService {
       simpleQuoteUrl: this.simpleQuoteUrl,
       zhejiangGoldUrl: this.zhejiangGoldUrl,
       minshengGoldUrl: this.minshengGoldUrl,
+      icbcGoldUrl: this.icbcGoldUrl,
       lastSuccessAt: this.lastSuccessAt,
       lastQuoteTime: this.latestQuote?.zhejiangGold.quoteTime,
       pollCount: this.pollCount,
@@ -240,7 +268,7 @@ export class JdGoldLiveService {
       'User-Agent': 'Mozilla/5.0 GoldPriceService/1.0',
       Origin: 'https://gold-price-pro.pf.jd.com',
     };
-    const [simpleResponse, zhejiangResponse, minshengResponse] = await Promise.all([
+    const [simpleResponse, zhejiangResponse, minshengResponse, icbcResponse] = await Promise.all([
       axios.get<SimpleQuoteResponse>(this.simpleQuoteUrl, {
         params: { reqData: JSON.stringify(simpleRequest) },
         headers,
@@ -256,12 +284,26 @@ export class JdGoldLiveService {
         headers,
         timeout: this.requestTimeoutMs,
       }).catch(() => undefined),
+      axios.post<BankGoldQuoteResponse>(
+        `${this.icbcGoldUrl}?productSku=${ICBC_GOLD_SKU}`,
+        { reqData: { productSku: ICBC_GOLD_SKU } },
+        {
+          headers,
+          timeout: this.requestTimeoutMs,
+        },
+      ).catch(() => undefined),
     ]);
 
     const simpleData = simpleResponse.data?.resultData?.data || [];
     const zhejiangData = zhejiangResponse.data?.resultData?.data;
     const zhejiangGold = this.mapInstrument(zhejiangData, 'CZB-JCJ', '浙商银行积存金', Date.now());
     const minshengGold = this.mapMinshengInstrument(minshengResponse?.data?.resultData?.data, Date.now());
+    const icbcGold = this.mapBankGoldInstrument(
+      icbcResponse?.data?.resultData?.data || icbcResponse?.data?.resultData?.datas,
+      'ICBC-JCJ',
+      '工行积存金',
+      Date.now(),
+    );
     const exchangeRate = this.findInstrument(simpleData, 'FX-USDCNH', '离岸人民币');
     if (!zhejiangGold || !exchangeRate) {
       throw new Error('京东接口缺少浙商黄金或汇率数据');
@@ -275,6 +317,7 @@ export class JdGoldLiveService {
       fetchedAtMs,
       zhejiangGold,
       minshengGold: minshengGold || undefined,
+      icbcGold: icbcGold || undefined,
       exchangeRate,
       londonGold: this.findInstrument(simpleData, 'WG-XAUUSD', '伦敦金'),
       goldTd: this.findInstrument(simpleData, 'SGE-Au(T+D)', '黄金T+D'),
@@ -322,6 +365,35 @@ export class JdGoldLiveService {
       change: this.parseFormattedNumber(item.dayFluctuateNum),
       changePercent: this.parseFormattedNumber(item.rateValue),
       quoteTime: new Date(fallbackTimeMs).toISOString(),
+    };
+  }
+
+  private mapBankGoldInstrument(
+    item: BankGoldQuotePayload | undefined,
+    fallbackCode: string,
+    fallbackName: string,
+    fallbackTimeMs: number,
+  ): JdMarketInstrument | null {
+    if (!item) {
+      return null;
+    }
+
+    const price = Number(item.price);
+    if (!Number.isFinite(price)) {
+      return null;
+    }
+
+    const timestamp = Number(item.time);
+    return {
+      uniqueCode: String(item.goldCode || item.productSku || fallbackCode),
+      name: String(item.goldName || item.productName || item.name || fallbackName),
+      price,
+      change: this.parseFormattedNumber(item.upAndDownAmt),
+      changePercent: this.parseFormattedNumber(item.upAndDownRate),
+      preClose: this.optionalNumber(item.yesterdayPrice),
+      quoteTime: Number.isFinite(timestamp) && timestamp > 0
+        ? new Date(timestamp).toISOString()
+        : new Date(fallbackTimeMs).toISOString(),
     };
   }
 
