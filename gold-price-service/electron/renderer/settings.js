@@ -34,6 +34,18 @@ const els = {
   exportXlsxButton: document.getElementById('exportXlsxButton'),
   importDataButton: document.getElementById('importDataButton'),
   backupStatus: document.getElementById('backupStatus'),
+  llmConfigList: document.getElementById('llmConfigList'),
+  addLlmButton: document.getElementById('addLlmButton'),
+  llmForm: document.getElementById('llmForm'),
+  llmFormTitle: document.getElementById('llmFormTitle'),
+  llmName: document.getElementById('llmName'),
+  llmBaseUrl: document.getElementById('llmBaseUrl'),
+  llmApiKey: document.getElementById('llmApiKey'),
+  llmApiKeyHint: document.getElementById('llmApiKeyHint'),
+  llmModel: document.getElementById('llmModel'),
+  llmSaveButton: document.getElementById('llmSaveButton'),
+  llmCancelButton: document.getElementById('llmCancelButton'),
+  llmStatus: document.getElementById('llmStatus'),
 };
 
 let feishuWebhookConfigured = false;
@@ -450,6 +462,158 @@ els.exportJsonButton.addEventListener('click', () => exportData('json'));
 els.exportCsvButton.addEventListener('click', () => exportData('csv'));
 els.exportXlsxButton.addEventListener('click', () => exportData('xlsx'));
 els.importDataButton.addEventListener('click', importData);
+// ===== 大模型配置 =====
+let editingLlmId = null;
+let llmConfigs = [];
+
+async function loadLlmConfigs() {
+  try {
+    llmConfigs = await fetchJson('/api/llm/configs');
+    renderLlmConfigs();
+  } catch (error) {
+    els.llmStatus.textContent = error.message;
+  }
+}
+
+function renderLlmConfigs() {
+  if (llmConfigs.length === 0) {
+    els.llmConfigList.replaceChildren();
+    els.llmStatus.textContent = '尚未配置模型，点击下方按钮添加';
+    return;
+  }
+
+  els.llmConfigList.replaceChildren(...llmConfigs.map((config) => {
+    const item = document.createElement('div');
+    item.className = 'llm-config-item';
+
+    const main = document.createElement('div');
+    main.className = 'llm-config-main';
+
+    const name = document.createElement('div');
+    name.className = 'llm-config-name';
+    name.textContent = config.name || config.model;
+    if (config.isDefault) {
+      const badge = document.createElement('span');
+      badge.className = 'llm-badge';
+      badge.textContent = '默认';
+      name.append(badge);
+    }
+
+    const model = document.createElement('div');
+    model.className = 'llm-config-model';
+    model.textContent = `${config.model} · ${config.baseUrl}`;
+
+    main.append(name, model);
+
+    const actions = document.createElement('div');
+    actions.className = 'llm-config-actions';
+    actions.append(
+      llmActionButton('测试', () => testLlmConfig(config.id)),
+      llmActionButton('默认', () => setDefaultLlmConfig(config.id)),
+      llmActionButton('编辑', () => showLlmForm(config)),
+      llmActionButton('删除', () => deleteLlmConfig(config.id), true),
+    );
+
+    item.append(main, actions);
+    return item;
+  }));
+
+  els.llmStatus.textContent = `已配置 ${llmConfigs.length} 个模型`;
+}
+
+function llmActionButton(label, onClick, danger = false) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `llm-action-button${danger ? ' danger' : ''}`;
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function showLlmForm(config = null) {
+  editingLlmId = config ? config.id : null;
+  els.llmFormTitle.textContent = config ? '编辑模型' : '添加模型';
+  els.llmName.value = config ? config.name : '';
+  els.llmBaseUrl.value = config ? config.baseUrl : 'https://api.deepseek.com';
+  els.llmModel.value = config ? config.model : 'deepseek-v4-pro';
+  els.llmApiKey.value = '';
+  els.llmApiKeyHint.textContent = config && config.apiKeyConfigured
+    ? `已配置：${config.apiKey}，留空则保持不变`
+    : '密钥仅保存在本地';
+  els.llmForm.hidden = false;
+  els.addLlmButton.hidden = true;
+  els.llmName.focus();
+}
+
+function hideLlmForm() {
+  els.llmForm.hidden = true;
+  els.addLlmButton.hidden = false;
+  editingLlmId = null;
+}
+
+async function saveLlmConfig() {
+  els.llmSaveButton.disabled = true;
+  els.llmStatus.textContent = '正在保存…';
+  try {
+    const body = {
+      name: els.llmName.value.trim(),
+      baseUrl: els.llmBaseUrl.value.trim(),
+      model: els.llmModel.value.trim(),
+      ...(els.llmApiKey.value.trim() ? { apiKey: els.llmApiKey.value.trim() } : {}),
+    };
+    if (editingLlmId) {
+      await fetchJson(`/api/llm/configs/${editingLlmId}`, { method: 'PATCH', body: JSON.stringify(body) });
+    } else {
+      await fetchJson('/api/llm/configs', { method: 'POST', body: JSON.stringify(body) });
+    }
+    els.llmStatus.textContent = '模型已保存';
+    hideLlmForm();
+    await loadLlmConfigs();
+  } catch (error) {
+    els.llmStatus.textContent = error.message;
+  } finally {
+    els.llmSaveButton.disabled = false;
+  }
+}
+
+async function deleteLlmConfig(id) {
+  try {
+    await fetchJson(`/api/llm/configs/${id}`, { method: 'DELETE' });
+    els.llmStatus.textContent = '已删除';
+    if (editingLlmId === id) {
+      hideLlmForm();
+    }
+    await loadLlmConfigs();
+  } catch (error) {
+    els.llmStatus.textContent = error.message;
+  }
+}
+
+async function setDefaultLlmConfig(id) {
+  try {
+    await fetchJson(`/api/llm/configs/${id}/default`, { method: 'POST' });
+    els.llmStatus.textContent = '已设为默认';
+    await loadLlmConfigs();
+  } catch (error) {
+    els.llmStatus.textContent = error.message;
+  }
+}
+
+async function testLlmConfig(id) {
+  els.llmStatus.textContent = '正在测试连接…';
+  try {
+    const result = await fetchJson('/api/llm/test', { method: 'POST', body: JSON.stringify({ configId: id }) });
+    els.llmStatus.textContent = `连接成功（${result.elapsedMs}ms）：${result.reply}`;
+  } catch (error) {
+    els.llmStatus.textContent = `连接失败：${error.message}`;
+  }
+}
+
+els.addLlmButton.addEventListener('click', () => showLlmForm());
+els.llmCancelButton.addEventListener('click', hideLlmForm);
+els.llmSaveButton.addEventListener('click', saveLlmConfig);
+loadLlmConfigs();
+
 loadRules();
 loadAlertHistory();
 updateCooldownHint();

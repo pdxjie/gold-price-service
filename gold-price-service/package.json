@@ -5,7 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "ts-node src/server.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').cpSync('src/ai/skill','dist/ai/skill',{recursive:true})\"",
     "start": "node dist/server.js",
     "desktop": "electron electron/main.js",
     "pack:win": "npm run build && electron-builder --win nsis --x64",
@@ -41,6 +41,7 @@
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
     "express": "^4.18.2",
+    "html-to-image": "^1.11.13",
     "iconv-lite": "^0.6.3",
     "node-cache": "^5.1.2",
     "sockjs-client": "^1.6.1",

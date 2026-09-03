@@ -37,6 +37,7 @@
         </div>
       </header>
 
+      <div class="settings-content">
       <section class="settings-card">
         <div class="settings-card-head">
           <div>
@@ -137,6 +138,46 @@
           <div id="wecomStatus" class="status-line">正在读取企业微信设置</div>
         </div>
       </section>
+
+      <section class="settings-card llm-card">
+        <div class="settings-card-head">
+          <div>
+            <h2>大模型</h2>
+            <p>配置 AI 分析的模型接口，支持 OpenAI 兼容的三方中转（如 DeepSeek 官方或各类中转站）。</p>
+          </div>
+        </div>
+        <div id="llmConfigList" class="llm-config-list"></div>
+        <button id="addLlmButton" class="secondary-button llm-add-button" type="button">＋ 添加模型</button>
+        <div id="llmForm" class="llm-form" hidden>
+          <div class="llm-form-head">
+            <span id="llmFormTitle">添加模型</span>
+          </div>
+          <label class="settings-field">
+            <span>名称</span>
+            <input id="llmName" type="text" placeholder="如：DeepSeek 官方" autocomplete="off" />
+          </label>
+          <label class="settings-field">
+            <span>接口地址</span>
+            <input id="llmBaseUrl" type="url" inputmode="url" placeholder="https://api.deepseek.com" autocomplete="off" />
+            <small>OpenAI 兼容地址，自动拼接 /chat/completions</small>
+          </label>
+          <label class="settings-field">
+            <span>密钥</span>
+            <input id="llmApiKey" type="password" placeholder="sk-..." autocomplete="new-password" />
+            <small id="llmApiKeyHint">密钥仅保存在本地</small>
+          </label>
+          <label class="settings-field">
+            <span>模型</span>
+            <input id="llmModel" type="text" placeholder="deepseek-v4-pro" autocomplete="off" />
+          </label>
+          <div class="settings-actions">
+            <button id="llmSaveButton" class="primary-button" type="button">保存</button>
+            <button id="llmCancelButton" class="secondary-button" type="button">取消</button>
+          </div>
+        </div>
+        <div id="llmStatus" class="status-line">尚未配置模型</div>
+      </section>
+      </div>
 
     </main>
     <script src="./settings.js"></script>

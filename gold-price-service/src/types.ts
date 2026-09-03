@@ -175,3 +175,14 @@ export interface CollectorStatus {
   lastRecycleCollectAt?: string;
   lastError?: string;
 }
+
+export interface LlmConfig {
+  id: number;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

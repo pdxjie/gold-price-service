@@ -10,13 +10,14 @@ const API_BASE = `http://localhost:${BACKEND_PORT}`;
 
 let mainWindow = null;
 let settingsWindow = null;
+let analysisWindow = null;
 let backendProcess = null;
 let backendStartedByUs = false;
 let tray = null;
 let isQuitting = false;
 const expandedWindowSize = [460, 850];
 const collapsedWindowSize = [260, 136];
-const settingsWindowSize = [420, 1040];
+const settingsWindowSize = [420, 720];
 let windowCollapsed = false;
 let mainWindowFloatingEnabled = true;
 const dragSessions = new Map();
@@ -538,6 +539,50 @@ ipcMain.handle('settings:open', () => {
   return true;
 });
 
+function createAnalysisWindow() {
+  if (analysisWindow && !analysisWindow.isDestroyed()) {
+    analysisWindow.show();
+    analysisWindow.focus();
+    return analysisWindow;
+  }
+
+  analysisWindow = new BrowserWindow({
+    width: 480,
+    height: 760,
+    minWidth: 400,
+    minHeight: 520,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#00000000',
+    title: 'AI 分析',
+    ...(process.platform === 'win32' ? { icon: getPlatformIconPath() } : {}),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      additionalArguments: [`--api-base=${API_BASE}`],
+    },
+  });
+
+  analysisWindow.loadFile(path.join(__dirname, 'renderer', 'analysis.html'));
+  analysisWindow.on('closed', () => {
+    analysisWindow = null;
+  });
+  analysisWindow.once('ready-to-show', () => {
+    analysisWindow?.show();
+  });
+  return analysisWindow;
+}
+
+ipcMain.handle('analysis:open', () => {
+  createAnalysisWindow();
+  return true;
+});
+
 ipcMain.handle('settings:set-startup', (_event, enabled) => {
   app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: process.execPath });
   return app.getLoginItemSettings().openAtLogin;
@@ -627,4 +672,115 @@ ipcMain.handle('notify', (_event, payload) => {
   }).show();
 
   return true;
+});
+
+const JD_POST_URL = 'https://roma.jd.com/content/personal?contentId=jimu_user_info-12066789&romaFileName=pageCommunityPersonal';
+
+function fetchJdPersonalPost() {
+  return new Promise((resolve) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    let settled = false;
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      try {
+        win.destroy();
+      } catch {
+      }
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => {
+      finish({ status: 'error', error: '金友圈抓取超时', fetched_at: new Date().toISOString(), url: JD_POST_URL });
+    }, 25000);
+
+    win.webContents.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    );
+
+    win.webContents.on('did-finish-load', async () => {
+      try {
+        const currentUrl = win.webContents.getURL();
+        if (/passport|login/i.test(currentUrl)) {
+          finish({ status: 'error', error: '页面需要登录京东金融', fetched_at: new Date().toISOString(), url: JD_POST_URL });
+          return;
+        }
+
+        await new Promise((r) => setTimeout(r, 4000));
+        const result = await win.webContents.executeJavaScript(`
+          (() => {
+            const candidates = document.querySelectorAll('[data-qidian-ext]');
+            let best = null;
+            for (const el of candidates) {
+              const text = (el.innerText || '').trim().replace(/\\s+/g, ' ');
+              if (!text || text.length < 10) continue;
+              let contentId = null;
+              const ext = el.getAttribute('data-qidian-ext');
+              try { contentId = JSON.parse(ext)?.contentId || null; } catch {}
+              const score = (contentId ? 6 : 0)
+                + ((text.includes('金友圈') || text.includes('观点') || text.includes('资讯')) ? 3 : 0)
+                + (text.length >= 20 ? 1 : 0)
+                - (text.includes('黄金持仓') || text.includes('关注并查看明细') ? 5 : 0);
+              if (score <= 0) continue;
+              if (!best || score > best.score) best = { score, text: text.slice(0, 3000), contentId };
+            }
+            if (!best) return { status: 'error', error: '未找到动态内容' };
+            return { status: 'ok', title_text: best.text, content_id: best.contentId };
+          })()
+        `);
+
+        finish({
+          status: result && result.status === 'ok' ? 'ok' : 'error',
+          title_text: result && result.title_text,
+          content_id: result && result.content_id,
+          error: result && result.error,
+          fetched_at: new Date().toISOString(),
+          url: JD_POST_URL,
+        });
+      } catch (error) {
+        finish({ status: 'error', error: String(error && error.message ? error.message : error), fetched_at: new Date().toISOString(), url: JD_POST_URL });
+      }
+    });
+
+    win.webContents.on('did-fail-load', (_event, code, desc) => {
+      finish({ status: 'error', error: `页面加载失败(${code}): ${desc}`, fetched_at: new Date().toISOString(), url: JD_POST_URL });
+    });
+
+    win.loadURL(JD_POST_URL).catch((error) => {
+      finish({ status: 'error', error: String(error && error.message ? error.message : error), fetched_at: new Date().toISOString(), url: JD_POST_URL });
+    });
+  });
+}
+
+ipcMain.handle('gold:fetch-jd-post', () => fetchJdPersonalPost());
+
+ipcMain.handle('image:export', async (_event, payload) => {
+  const dataUrl = payload?.dataUrl;
+  const defaultName = typeof payload?.defaultName === 'string' ? payload.defaultName : 'jinmai-analysis.png';
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return { canceled: false, error: '无效的图片数据' };
+  }
+
+  const result = await dialog.showSaveDialog({
+    title: '导出分析图片',
+    defaultPath: path.join(app.getPath('documents'), defaultName),
+    filters: [{ name: 'PNG 图片', extensions: ['png'] }],
+  });
+  if (result.canceled || !result.filePath) {
+    return { canceled: true };
+  }
+
+  const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+  fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
+  return { canceled: false, filePath: result.filePath };
 });

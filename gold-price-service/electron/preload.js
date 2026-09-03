@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('goldDesktop', {
   minimize: () => ipcRenderer.invoke('window:minimize'),
   close: () => ipcRenderer.invoke('window:close'),
   openSettings: () => ipcRenderer.invoke('settings:open'),
+  openAnalysis: () => ipcRenderer.invoke('analysis:open'),
   notify: (title, body) => ipcRenderer.invoke('notify', { title, body }),
   setStartup: (enabled) => ipcRenderer.invoke('settings:set-startup', enabled),
   getStartup: () => ipcRenderer.invoke('settings:get-startup'),
@@ -21,4 +22,6 @@ contextBridge.exposeInMainWorld('goldDesktop', {
   importData: () => ipcRenderer.invoke('data:import'),
   onWindowToggleCollapsed: (callback) => ipcRenderer.on('window:toggle-collapsed', callback),
   onAppearanceChanged: (callback) => ipcRenderer.on('appearance:changed', (_event, settings) => callback(settings)),
+  fetchJdPost: () => ipcRenderer.invoke('gold:fetch-jd-post'),
+  exportImage: (dataUrl, defaultName) => ipcRenderer.invoke('image:export', { dataUrl, defaultName }),
 });

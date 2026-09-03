@@ -2,7 +2,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
-import { AlertDirection } from './types';
+import { AlertDirection, LlmConfig } from './types';
 import { priceAggregator } from './services/price-aggregator';
 import { bullionVaultLiveService } from './services/bullionvault-live';
 import { jdGoldLiveService } from './services/jd-gold-live';
@@ -16,6 +16,8 @@ import { sendFeishuAlert } from './services/feishu-notifier';
 import { sendWecomTest } from './services/wecom-notifier';
 import { sendWecomAlert } from './services/wecom-notifier';
 import { shortTermSignalService } from './services/short-term-signals';
+import { chatCompletion } from './services/llm-client';
+import { runAiAnalysis, getAnalysisStatus } from './services/ai-analysis';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -792,6 +794,285 @@ app.post('/api/notifications/wecom/test', async (_req: Request, res: Response) =
     sqliteStore.updateWecomSettings({ lastError: message });
     res.status(502).json({ code: 502, message, data: null });
   }
+});
+
+/**
+ * 大模型配置
+ */
+
+function maskLlmApiKey(config: LlmConfig) {
+  return {
+    id: config.id,
+    name: config.name,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    isDefault: config.isDefault,
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt,
+    apiKeyConfigured: Boolean(config.apiKey),
+    apiKey: config.apiKey ? maskSecret(config.apiKey) : '',
+  };
+}
+
+function parseLlmConfigBody(body: Record<string, unknown>, partial = false) {
+  const input: Partial<{
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    isDefault: boolean;
+  }> = {};
+
+  if (body.name !== undefined) {
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      throw new Error('名称不能为空');
+    }
+    input.name = body.name.trim();
+  }
+  if (body.baseUrl !== undefined) {
+    if (typeof body.baseUrl !== 'string' || !body.baseUrl.trim()) {
+      throw new Error('接口地址不能为空');
+    }
+    const baseUrl = body.baseUrl.trim();
+    if (!/^https?:\/\//.test(baseUrl)) {
+      throw new Error('接口地址需以 http(s):// 开头');
+    }
+    input.baseUrl = baseUrl;
+  }
+  if (body.apiKey !== undefined) {
+    if (typeof body.apiKey !== 'string') {
+      throw new Error('密钥必须为字符串');
+    }
+    input.apiKey = body.apiKey.trim();
+  }
+  if (body.model !== undefined) {
+    if (typeof body.model !== 'string' || !body.model.trim()) {
+      throw new Error('模型名不能为空');
+    }
+    input.model = body.model.trim();
+  }
+  if (body.isDefault !== undefined) {
+    input.isDefault = Boolean(body.isDefault);
+  }
+
+  if (!partial) {
+    if (!input.name) {
+      throw new Error('名称必填');
+    }
+    if (!input.baseUrl) {
+      throw new Error('接口地址必填');
+    }
+    if (!input.model) {
+      throw new Error('模型名必填');
+    }
+    if (!input.apiKey) {
+      throw new Error('密钥必填');
+    }
+  }
+
+  return input;
+}
+
+app.get('/api/llm/configs', (_req: Request, res: Response) => {
+  try {
+    const configs = sqliteStore.listLlmConfigs();
+    res.json({ code: 200, message: '获取成功', data: configs.map((config) => maskLlmApiKey(config)) });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: error instanceof Error ? error.message : 'Internal server error',
+      data: null,
+    });
+  }
+});
+
+app.post('/api/llm/configs', (req: Request, res: Response) => {
+  try {
+    const input = parseLlmConfigBody(req.body || {});
+    const config = sqliteStore.createLlmConfig(input as Required<typeof input>);
+    res.status(201).json({ code: 201, message: '创建成功', data: maskLlmApiKey(config) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request';
+    res.status(400).json({ code: 400, message, data: null });
+  }
+});
+
+app.patch('/api/llm/configs/:id', (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('无效的配置 id');
+    }
+    const input = parseLlmConfigBody(req.body || {}, true);
+    const config = sqliteStore.updateLlmConfig(id, input);
+    if (!config) {
+      res.status(404).json({ code: 404, message: '配置不存在', data: null });
+      return;
+    }
+    res.json({ code: 200, message: '更新成功', data: maskLlmApiKey(config) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request';
+    res.status(400).json({ code: 400, message, data: null });
+  }
+});
+
+app.delete('/api/llm/configs/:id', (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('无效的配置 id');
+    }
+    const deleted = sqliteStore.deleteLlmConfig(id);
+    res.status(deleted ? 200 : 404).json({
+      code: deleted ? 200 : 404,
+      message: deleted ? '删除成功' : '配置不存在',
+      data: null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request';
+    res.status(400).json({ code: 400, message, data: null });
+  }
+});
+
+app.post('/api/llm/configs/:id/default', (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('无效的配置 id');
+    }
+    const config = sqliteStore.setDefaultLlmConfig(id);
+    if (!config) {
+      res.status(404).json({ code: 404, message: '配置不存在', data: null });
+      return;
+    }
+    res.json({ code: 200, message: '已设为默认', data: maskLlmApiKey(config) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request';
+    res.status(400).json({ code: 400, message, data: null });
+  }
+});
+
+app.post('/api/llm/test', async (req: Request, res: Response) => {
+  const body = req.body || {};
+  let target: { baseUrl: string; apiKey: string; model: string };
+
+  if (body.configId) {
+    const config = sqliteStore.getLlmConfig(Number(body.configId));
+    if (!config) {
+      res.status(404).json({ code: 404, message: '配置不存在', data: null });
+      return;
+    }
+    target = { baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.model };
+  } else {
+    const baseUrl = String(body.baseUrl || '').trim();
+    const apiKey = String(body.apiKey || '').trim();
+    const model = String(body.model || '').trim();
+    if (!baseUrl || !apiKey || !model) {
+      res.status(400).json({ code: 400, message: '请填写接口地址、密钥和模型', data: null });
+      return;
+    }
+    target = { baseUrl, apiKey, model };
+  }
+
+  try {
+    const startedAt = Date.now();
+    const reply = await chatCompletion({
+      baseUrl: target.baseUrl,
+      apiKey: target.apiKey,
+      model: target.model,
+      messages: [{ role: 'user', content: '请用一句话确认你已就绪，并说明你是什么模型。' }],
+      temperature: 0,
+      timeoutMs: 20000,
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    res.json({ code: 200, message: '连接成功', data: { reply, model: target.model, elapsedMs } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '连接失败';
+    res.status(502).json({ code: 502, message, data: null });
+  }
+});
+
+/**
+ * AI 分析（流式 SSE）：POST /api/ai/analysis
+ * body: { configId?, jdPost?, holdings? }
+ */
+app.post('/api/ai/analysis', async (req: Request, res: Response) => {
+  const body = req.body || {};
+  const configId = Number(body.configId);
+  const config = configId
+    ? sqliteStore.getLlmConfig(configId)
+    : sqliteStore.getDefaultLlmConfig();
+
+  if (!config) {
+    res.status(400).json({ code: 400, message: '请先在设置中配置大模型', data: null });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const send = (event: string, data: unknown) => {
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {
+      // 客户端断开时忽略写入错误
+    }
+  };
+
+  try {
+    send('stage', { message: '已开始分析，正在读取行情…' });
+    const report = await runAiAnalysis(
+      config,
+      { jdPost: body.jdPost, holdings: body.holdings },
+      {
+        onStage: (stage) => send('stage', { message: stage }),
+        onDelta: (delta) => send('delta', { text: delta }),
+      },
+    );
+    send('done', { report });
+  } catch (error) {
+    send('error', { message: error instanceof Error ? error.message : '分析失败' });
+  } finally {
+    res.end();
+  }
+});
+
+app.get('/api/ai/analysis/records', (_req: Request, res: Response) => {
+  try {
+    res.json({ code: 200, message: '获取成功', data: sqliteStore.listAiAnalysisRecords() });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: error instanceof Error ? error.message : 'Internal server error',
+      data: null,
+    });
+  }
+});
+
+app.get('/api/ai/analysis/records/:id', (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const record = sqliteStore.getAiAnalysisRecord(id);
+    if (!record) {
+      res.status(404).json({ code: 404, message: '记录不存在', data: null });
+      return;
+    }
+    res.json({ code: 200, message: '获取成功', data: record });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: error instanceof Error ? error.message : 'Internal server error',
+      data: null,
+    });
+  }
+});
+
+app.get('/api/ai/analysis/status', (_req: Request, res: Response) => {
+  res.json({ code: 200, message: '获取成功', data: getAnalysisStatus() });
 });
 
 /**

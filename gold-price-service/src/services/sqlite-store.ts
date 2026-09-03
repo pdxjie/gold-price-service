@@ -10,6 +10,7 @@ import {
   GoldPrice,
   PriceHistory,
   RecyclePrice,
+  LlmConfig,
 } from '../types';
 
 const { DatabaseSync } = require('node:sqlite');
@@ -74,6 +75,17 @@ interface AlertEventRow {
 interface AppSettingRow {
   key: string;
   value: string;
+  updated_at: string;
+}
+
+interface LlmConfigRow {
+  id: number;
+  name: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  is_default: number;
+  created_at: string;
   updated_at: string;
 }
 
@@ -512,6 +524,171 @@ export class SQLiteStore {
     return result.changes;
   }
 
+  listLlmConfigs(): LlmConfig[] {
+    const rows = this.db.prepare(`
+      SELECT *
+      FROM llm_configs
+      ORDER BY is_default DESC, updated_at DESC
+    `).all() as LlmConfigRow[];
+
+    return rows.map((row) => this.mapLlmConfig(row));
+  }
+
+  getLlmConfig(id: number): LlmConfig | null {
+    const row = this.db.prepare('SELECT * FROM llm_configs WHERE id = ?').get(id) as LlmConfigRow | undefined;
+    return row ? this.mapLlmConfig(row) : null;
+  }
+
+  getDefaultLlmConfig(): LlmConfig | null {
+    const row = this.db.prepare(`
+      SELECT *
+      FROM llm_configs
+      WHERE is_default = 1
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `).get() as LlmConfigRow | undefined;
+    if (row) {
+      return this.mapLlmConfig(row);
+    }
+    const fallback = this.db.prepare('SELECT * FROM llm_configs ORDER BY updated_at DESC LIMIT 1').get() as LlmConfigRow | undefined;
+    return fallback ? this.mapLlmConfig(fallback) : null;
+  }
+
+  createLlmConfig(input: {
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    isDefault?: boolean;
+  }): LlmConfig {
+    const now = new Date().toISOString();
+    const existingCount = (this.db.prepare('SELECT COUNT(*) AS count FROM llm_configs').get() as { count: number }).count;
+    const isDefault = existingCount === 0 || input.isDefault === true;
+
+    if (isDefault) {
+      this.db.prepare('UPDATE llm_configs SET is_default = 0').run();
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO llm_configs (name, base_url, api_key, model, is_default, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      input.name,
+      input.baseUrl,
+      input.apiKey,
+      input.model,
+      isDefault ? 1 : 0,
+      now,
+      now,
+    );
+
+    const config = this.getLlmConfig(Number(result.lastInsertRowid));
+    if (!config) {
+      throw new Error('Failed to create LLM config');
+    }
+    return config;
+  }
+
+  updateLlmConfig(id: number, input: Partial<{
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    isDefault: boolean;
+  }>): LlmConfig | null {
+    const current = this.getLlmConfig(id);
+    if (!current) {
+      return null;
+    }
+
+    const next = {
+      name: input.name ?? current.name,
+      baseUrl: input.baseUrl ?? current.baseUrl,
+      apiKey: input.apiKey !== undefined && input.apiKey !== '' ? input.apiKey : current.apiKey,
+      model: input.model ?? current.model,
+      isDefault: input.isDefault ?? current.isDefault,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (next.isDefault) {
+      this.db.prepare('UPDATE llm_configs SET is_default = 0').run();
+    }
+
+    this.db.prepare(`
+      UPDATE llm_configs
+      SET name = ?, base_url = ?, api_key = ?, model = ?, is_default = ?, updated_at = ?
+      WHERE id = ?
+    `).run(next.name, next.baseUrl, next.apiKey, next.model, next.isDefault ? 1 : 0, next.updatedAt, id);
+
+    return this.getLlmConfig(id);
+  }
+
+  deleteLlmConfig(id: number): boolean {
+    const result = this.db.prepare('DELETE FROM llm_configs WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  setDefaultLlmConfig(id: number): LlmConfig | null {
+    const current = this.getLlmConfig(id);
+    if (!current) {
+      return null;
+    }
+    this.db.prepare('UPDATE llm_configs SET is_default = 0').run();
+    this.db.prepare('UPDATE llm_configs SET is_default = 1, updated_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+    return this.getLlmConfig(id);
+  }
+
+  private mapLlmConfig(row: LlmConfigRow): LlmConfig {
+    return {
+      id: row.id,
+      name: row.name,
+      baseUrl: row.base_url,
+      apiKey: row.api_key,
+      model: row.model,
+      isDefault: row.is_default === 1,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  saveAiAnalysisRecord(title: string, content: string, model: string): number {
+    const result = this.db.prepare(`
+      INSERT INTO ai_analysis_records (title, content, model, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(title, content, model, new Date().toISOString());
+    return Number(result.lastInsertRowid);
+  }
+
+  listAiAnalysisRecords(): Array<{ id: number; title: string; model: string; createdAt: string }> {
+    const rows = this.db.prepare(`
+      SELECT id, title, model, created_at
+      FROM ai_analysis_records
+      ORDER BY id DESC
+      LIMIT 100
+    `).all() as Array<{ id: number; title: string; model: string; created_at: string }>;
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      model: row.model,
+      createdAt: row.created_at,
+    }));
+  }
+
+  getAiAnalysisRecord(id: number): { id: number; title: string; content: string; model: string; createdAt: string } | null {
+    const row = this.db.prepare('SELECT * FROM ai_analysis_records WHERE id = ?').get(id) as
+      { id: number; title: string; content: string; model: string; created_at: string } | undefined;
+    if (!row) {
+      return null;
+    }
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      model: row.model,
+      createdAt: row.created_at,
+    };
+  }
+
   close(): void {
     this.db.close();
   }
@@ -754,6 +931,25 @@ export class SQLiteStore {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS llm_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        model TEXT NOT NULL,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ai_analysis_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        model TEXT NOT NULL,
+        created_at TEXT NOT NULL
       );
     `);
 

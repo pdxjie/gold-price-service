@@ -8,6 +8,10 @@
   </head>
   <body>
     <div id="collapsedBall" class="collapsed-card" role="button" tabindex="0" aria-label="展开金价详情" aria-live="polite">
+      <div id="collapsedAiIndicator" class="collapsed-ai-indicator" hidden>
+        <span class="collapsed-ai-spinner" aria-hidden="true"></span>
+        <span class="collapsed-ai-text">AI 分析中</span>
+      </div>
       <div class="collapsed-drag-handle" title="按住拖动" aria-hidden="true"></div>
       <div class="collapsed-card-head">
         <span class="collapsed-live"><span class="collapsed-live-dot" aria-hidden="true"></span>积存金 · 元/克</span>
@@ -46,6 +50,7 @@
           </span>
         </div>
         <div class="window-actions">
+          <button id="aiButton" class="icon-button ai-control" type="button" title="AI 分析" aria-label="AI 分析"></button>
           <button id="settingsButton" class="icon-button settings-control" type="button" title="设置" aria-label="打开设置"></button>
           <button id="toggleButton" class="icon-button toggle-control active" type="button" title="折叠" aria-label="折叠" aria-expanded="true"></button>
           <button id="minimizeButton" class="icon-button" type="button" title="最小化" aria-label="最小化">−</button>

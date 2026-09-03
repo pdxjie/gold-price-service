@@ -47,10 +47,12 @@ const state = {
   chartHoverIndex: -1,
   alertEvents: [],
   appearance: loadAppearanceSettings(),
+  aiRunning: false,
 };
 
 const els = {
   collapsedCard: document.getElementById('collapsedBall'),
+  collapsedAiIndicator: document.getElementById('collapsedAiIndicator'),
   collapsedZhejiangPrice: document.getElementById('collapsedZhejiangPrice'),
   collapsedMinshengPrice: document.getElementById('collapsedMinshengPrice'),
   collapsedIcbcPrice: document.getElementById('collapsedIcbcPrice'),
@@ -93,6 +95,7 @@ const els = {
   holdingRecycleRate: document.getElementById('holdingRecycleRate'),
   holdingSaleValue: document.getElementById('holdingSaleValue'),
   holdingSaleProfit: document.getElementById('holdingSaleProfit'),
+  aiButton: document.getElementById('aiButton'),
   settingsButton: document.getElementById('settingsButton'),
   toggleButton: document.getElementById('toggleButton'),
   minimizeButton: document.getElementById('minimizeButton'),
@@ -1738,6 +1741,7 @@ els.toggleButton.addEventListener('click', async () => {
 els.minimizeButton.addEventListener('click', () => window.goldDesktop?.minimize());
 els.closeButton.addEventListener('click', () => window.goldDesktop?.close());
 els.settingsButton.addEventListener('click', () => window.goldDesktop?.openSettings());
+els.aiButton.addEventListener('click', () => window.goldDesktop?.openAnalysis());
 window.goldDesktop?.onWindowToggleCollapsed?.(() => toggleCollapsed());
 window.goldDesktop?.onAppearanceChanged?.((settings) => applyAppearance(settings));
 
@@ -1763,3 +1767,26 @@ setInterval(() => loadFullGoldData(true).then(() => {
   renderHolding();
   renderCollapsedCard();
 }), 30000);
+
+function renderAiIndicator() {
+  if (!els.collapsedAiIndicator) {
+    return;
+  }
+  els.collapsedAiIndicator.hidden = !state.aiRunning;
+}
+
+async function pollAiStatus() {
+  try {
+    const status = await fetchJson('/api/ai/analysis/status');
+    const running = Boolean(status?.running);
+    if (running !== state.aiRunning) {
+      state.aiRunning = running;
+      renderAiIndicator();
+    }
+  } catch {
+    // 忽略轮询失败
+  }
+}
+
+setInterval(pollAiStatus, 3000);
+pollAiStatus();
